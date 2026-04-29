@@ -123,3 +123,14 @@ abs(3 + 4i)
 - Fractions like `1/2` are evaluated exactly (e.g. `1/2 + 1/3` = `5/6`).
 - Spaces are allowed anywhere in expressions.
 - Both `i` and `j` are treated as the imaginary unit.
+
+
+
+---
+
+## Notes
+
+- Angles in trigonometric functions are in **radians**. Use `pi` for π.
+- Fractions like `1/2` are evaluated exactly (e.g. `1/2 + 1/3` = `5/6`).
+- Spaces are allowed anywhere in expressions.
+- Both `i` and `j` are treated as the imaginary unit.
