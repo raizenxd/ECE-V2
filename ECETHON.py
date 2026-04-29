@@ -69,6 +69,8 @@ class App(tk.Tk):
         for name, cls in [
             ("home",    HomePage),
             ("topics",  TopicsPage),
+            ("about",   AboutPage),
+            ("creator", CreatorPage),
             ("complex", ComplexPage),
             ("linear",  LinearPage),
             ("fourier", FourierPage),
@@ -83,7 +85,10 @@ class App(tk.Tk):
     def go(self, name):
         for p in self._pages.values():
             p.lower()
-        self._pages[name].lift()
+        page = self._pages[name]
+        if hasattr(page, "on_show"):
+            page.on_show()
+        page.lift()
 
 
 # ── Base page ─────────────────────────────────────────────────────────────────
@@ -165,19 +170,269 @@ class HomePage(Page):
                   cursor="hand2", command=w.destroy).pack(pady=18)
 
     def _about(self):
-        self._modal(
-            "About ECETHON",
-            "An interactive ECE mathematics tool.\n"
-            "Topics: Complex Numbers, Linear Algebra,\n"
-            "Fourier Series & Laplace Transforms.",
-        )
+        self.go("about")
 
     def _creator(self):
-        self._modal(
-            "Creator",
-            "Developed by ECE Students\n"
-            "Advanced Engineering Mathematics · 2026",
-        )
+        self.go("creator")
+
+
+# ── Creator page ────────────────────────────────────────────────────────────────
+class CreatorPage(Page):
+    # HOME button hit-zone measured from Creator.png (1280×720)
+    _BTN_HOME = (1090, 18, 1248, 70)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.cv = tk.Canvas(self, width=W, height=H,
+                            bd=0, highlightthickness=0, bg=SKY)
+        self.cv.place(x=0, y=0)
+        self._img_ref = None
+        self._draw()
+
+    def _draw(self):
+        cv = self.cv
+        cv.delete("all")
+
+        # ── Full-screen image ─────────────────────────────────────────────────
+        try:
+            self._img_ref = tk.PhotoImage(file="creator/Creator.png")
+            cv.create_image(0, 0, anchor="nw", image=self._img_ref)
+        except Exception:
+            cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
+            cv.create_text(W//2, H//2, text="creator/Creator.png not found",
+                           font=("OPTIVagRound-Bold", 24), fill=WHITE)
+
+        # ── Invisible HOME hit-zone ───────────────────────────────────────────
+        x1, y1, x2, y2 = self._BTN_HOME
+        zone = cv.create_rectangle(x1, y1, x2, y2, fill="", outline="")
+        cv.tag_bind(zone, "<Button-1>", lambda e: self.go("home"))
+        cv.tag_bind(zone, "<Enter>",    lambda e: cv.config(cursor="hand2"))
+        cv.tag_bind(zone, "<Leave>",    lambda e: cv.config(cursor=""))
+
+
+# ── About page (5-slide deck) ─────────────────────────────────────────────────
+class AboutPage(Page):
+    _PURPLE = "#8B5CF6"
+    _TX     = 70          # body text left anchor x
+    _TW     = W - 140     # body text wrap width
+
+    def __init__(self, app):
+        super().__init__(app)
+        self._slide = 0
+        self.cv = tk.Canvas(self, width=W, height=H,
+                            bd=0, highlightthickness=0, bg=SKY)
+        self.cv.place(x=0, y=0)
+        self._render()
+
+    def on_show(self):
+        """Called by App.go() — always start at slide 0."""
+        self._slide = 0
+        self._render()
+
+    # ── slide navigation ──────────────────────────────────────────────────────
+    def _go(self, idx):
+        self._slide = idx
+        self._render()
+
+    # ── full redraw ───────────────────────────────────────────────────────────
+    def _render(self):
+        cv = self.cv
+        cv.delete("all")
+        cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
+        self._purplebar(cv)
+
+        # BACK (hidden on first slide)
+        if self._slide > 0:
+            cbtn(cv, 30, 18, 180, 68, "BACK",
+                 ("OPTIVagRound-Bold", 20), RED, RED_DK,
+                 lambda: self._go(self._slide - 1), r=18)
+            otxt(cv, W//2, 44, "About the Project",
+                 ("OPTIVagRound-Bold", 20), fill=WHITE, ol=NAVY, ow=2)
+
+        # HOME always visible
+        cbtn(cv, W-180, 18, W-30, 68, "HOME",
+             ("OPTIVagRound-Bold", 20), YELLOW, YEL_DK,
+             lambda: self.go("home"), r=18)
+
+        # NEXT (hidden on last slide)
+        if self._slide < 4:
+            cbtn(cv, W-230, H-65, W-30, H-10, "NEXT",
+                 ("OPTIVagRound-Bold", 22), GREEN, GRN_DK,
+                 lambda: self._go(self._slide + 1), r=22)
+
+        # dispatch to slide renderer
+        [self._s0, self._s1, self._s2, self._s3, self._s4][self._slide]()
+
+    # ── shared drawing helpers ────────────────────────────────────────────────
+    def _card(self, y1, y2):
+        """Slightly darker card background for formula blocks."""
+        rr(self.cv, 60, y1, W-60, y2, r=16, fill="#2A6A9A", outline="")
+
+    def _body(self, y, text, size=13):
+        self.cv.create_text(self._TX, y, anchor="nw", width=self._TW,
+                            justify="left", fill=WHITE,
+                            font=("OPTIVagRound-Bold", size), text=text)
+
+    def _fline(self, y, text, color=WHITE, size=14):
+        otxt(self.cv, W//2, y, text,
+             ("OPTIVagRound-Bold", size), fill=color, ol=NAVY, ow=2)
+
+    def _flabel(self, y):
+        self.cv.create_text(W//2, y, text="FORMULAS:",
+                            font=("OPTIVagRound-Bold", 14), fill=NAVY)
+
+    # ── Slide 0 · About the Project ──────────────────────────────────────────
+    def _s0(self):
+        cv = self.cv
+        otxt(cv, W//2, 108, "About the Project",
+             ("OPTIVagRound-Bold", 48), fill=WHITE, ol=NAVY, ow=5)
+
+        self._body(185, (
+            "This project is an interactive computational tool developed for Advanced "
+            "Engineering Mathematics. It is designed to help students solve and understand "
+            "high-level mathematical problems in a simpler and more organized way."
+        ))
+
+        self._body(295, "The system focuses on key topics such as:")
+
+        # colored topic names row
+        for name, color, xc in [
+            ("Linear Algebra",    GREEN,        195),
+            ("Complex Numbers",   self._PURPLE, 455),
+            ("Fourier Series",    GREEN,        715),
+            ("Laplace Transform", YELLOW,       980),
+        ]:
+            otxt(cv, xc, 335, name,
+                 ("OPTIVagRound-Bold", 17), fill=color, ol=NAVY, ow=2)
+
+        self._body(370, (
+            "It allows users to input mathematical problems and generate accurate solutions "
+            "that support learning and problem-solving."
+        ))
+
+        self._body(440, (
+            "The main purpose of this project is to connect mathematical theory with practical "
+            "application. By using a Python-based program, the project helps make complex "
+            "engineering mathematics easier to analyze, compute, and understand."
+        ))
+
+    # ── Slide 1 · Linear Algebra ──────────────────────────────────────────────
+    def _s1(self):
+        cv = self.cv
+        otxt(cv, W//2, 145, "LINEAR ALGEBRA",
+             ("OPTIVagRound-Bold", 46), fill=WHITE, ol=NAVY, ow=5)
+
+        self._body(210, (
+            "Description:  Linear Algebra is a branch of mathematics that deals with vectors, "
+            "matrices, and linear equations. It focuses on understanding relationships in "
+            "multi-dimensional space and solving systems of equations efficiently."
+        ))
+
+        self._flabel(338)
+        self._card(350, 425)
+        self._fline(387, "Ax = b", WHITE, 28)
+
+        self._body(440, (
+            "Application:  Linear Algebra is widely used in engineering for circuit analysis, "
+            "computer graphics, machine learning, signal processing, and solving real-world "
+            "systems involving multiple variables."
+        ))
+
+    # ── Slide 2 · Complex Numbers ─────────────────────────────────────────────
+    def _s2(self):
+        cv = self.cv
+        otxt(cv, W//2, 143, "COMPLEX NUMBERS",
+             ("OPTIVagRound-Bold", 44), fill=self._PURPLE, ol=NAVY, ow=5)
+
+        self._body(200, (
+            "Description:  Complex Numbers have both a real and imaginary part, written as "
+            "z = x + jy, where x is the real part and y is the coefficient of the imaginary unit j. "
+            "They represent quantities that cannot be expressed using real numbers alone."
+        ), size=13)
+
+        self._flabel(316)
+        self._card(328, 490)
+
+        left_lines = [
+            "General Form:  z = x + jy",
+            "Polar Form:  z = r(cos\u03b8 + jsin\u03b8)",
+            "Where r = \u221a(x\u00b2+y\u00b2),  \u03b8 = tan\u207b\u00b9(y/x)",
+            "Addition:  (x+jy)\u00b1(a+jb) = (x\u00b1a)+j(y\u00b1b)",
+        ]
+        right_lines = [
+            "Multiplication: (x+jy)(a+jb) = (xa\u2212yb)+j(xb+ya)",
+            "Division: (x+jy)/(a+jb) = (x+jy)(a\u2212jb)/(a\u00b2+b\u00b2)",
+            "Modulus:  |z| = \u221a(x\u00b2+y\u00b2)",
+            "Conjugate:  z\u0305 = x \u2212 jy",
+        ]
+        for i, line in enumerate(left_lines):
+            cv.create_text(90, 348+i*35, anchor="nw",
+                           text=line, font=("OPTIVagRound-Bold", 13), fill=WHITE)
+        for i, line in enumerate(right_lines):
+            cv.create_text(660, 348+i*35, anchor="nw",
+                           text=line, font=("OPTIVagRound-Bold", 13), fill=WHITE)
+
+        self._body(498, (
+            "Application:  Complex numbers are vital in ECE \u2014 they model AC circuits via phasors, "
+            "compute impedance, phase differences, and frequency behaviour of resistors, "
+            "capacitors, and inductors, simplifying analysis of voltages and currents."
+        ), size=12)
+
+    # ── Slide 3 · Fourier Series ──────────────────────────────────────────────
+    def _s3(self):
+        otxt(self.cv, W//2, 143, "FOURIER SERIES",
+             ("OPTIVagRound-Bold", 46), fill=GREEN, ol=NAVY, ow=5)
+
+        self._body(205, (
+            "Description:  The Fourier series represents periodic signals as the sum of simple "
+            "sine and cosine waves, breaking down complex signals into basic trigonometric "
+            "components. It transforms a time-domain signal into a frequency-based description, "
+            "making it easier to analyze and understand."
+        ))
+
+        self._flabel(338)
+        self._card(350, 490)
+        for i, f in enumerate([
+            "g(t) = a\u2080 + \u03a3 [ a\u2099 cos(2n\u03c0t/T) + b\u2099 sin(2n\u03c0t/T) ]",
+            "a\u2080 = (1/T) \u222b\u2080\u1d40 f(t) dt",
+            "a\u2099 = (2/T) \u222b\u2080\u1d40 f(t) cos(2n\u03c0t/T) dt",
+            "b\u2099 = (2/T) \u222b\u2080\u1d40 f(t) sin(2n\u03c0t/T) dt",
+        ]):
+            self._fline(370+i*32, f, GREEN, 14)
+
+        self._body(498, (
+            "Application:  The Fourier series is widely used in electronics to analyze circuits "
+            "and signals involving AC currents, filters, and communication signals. It helps "
+            "engineers understand wave behaviour under capacitors, inductors, and amplifiers, "
+            "aiding circuit design and signal transmission optimization."
+        ), size=12)
+
+    # ── Slide 4 · Laplace Transform ───────────────────────────────────────────
+    def _s4(self):
+        otxt(self.cv, W//2, 143, "LAPLACE TRANSFORM",
+             ("OPTIVagRound-Bold", 40), fill=YELLOW, ol=NAVY, ow=5)
+
+        self._body(205, (
+            "Description:  The Laplace transform, named after Pierre-Simon Laplace, is an "
+            "integral transform that converts a function of a real variable t (time domain) "
+            "into a function of a complex variable s (frequency domain / s-domain or s-plane)."
+        ))
+
+        self._flabel(318)
+        self._card(330, 468)
+        for i, f in enumerate([
+            "F(s) = \u222b\u208b\u221e\u207f\u221e e\u207b\u02e2\u1d57 f(t) dt",
+            "f(t) = \u2112\u207b\u00b9{F}(t) = (1/2\u03c0i) \u222b\u209c\u208b\u1d35\u221e^\u1d40\u207a\u1d35\u221e e\u02e2\u1d57 F(s) ds",
+            "\u2112{f}(s) = \u222b\u2080^\u221e f(t) e\u207b\u02e2\u1d57 dt",
+        ]):
+            self._fline(355+i*38, f, YELLOW, 14)
+
+        self._body(476, (
+            "Application:  The Laplace Transform is widely used in Electronics Engineering to "
+            "analyze circuits dealing with time-dependent signals such as switching, charging, "
+            "and discharging. It converts complex time-domain circuit equations into simpler "
+            "algebraic equations in the s-domain, making differential equations easier to solve."
+        ), size=12)
 
 
 # ── Topics page ───────────────────────────────────────────────────────────────
