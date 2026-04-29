@@ -2,8 +2,56 @@ import tkinter as tk
 from tkinter import ttk
 import cmath
 import math
+import re as _re
 import numpy as np
 import sympy as sp
+
+# ── Shared input parser (used by all pages) ───────────────────────────────────
+_SAFE_LOCALS = {
+    # constants
+    'pi': sp.pi, 'e': sp.E, 'E': sp.E, 'I': sp.I,
+    'inf': sp.oo, 'oo': sp.oo,
+    # functions
+    'sqrt': sp.sqrt, 'cbrt': lambda x: sp.Rational(1,3)**x,
+    'exp':  sp.exp,  'log': sp.log, 'ln': sp.log, 'log10': lambda x: sp.log(x, 10),
+    'sin':  sp.sin,  'cos': sp.cos,  'tan': sp.tan,
+    'asin': sp.asin, 'acos': sp.acos, 'atan': sp.atan, 'atan2': sp.atan2,
+    'sinh': sp.sinh, 'cosh': sp.cosh, 'tanh': sp.tanh,
+    'abs':  sp.Abs,  'Abs': sp.Abs,  'sign': sp.sign,
+    'floor': sp.floor, 'ceil': sp.ceiling,
+    're': sp.re, 'im': sp.im, 'arg': sp.arg, 'conj': sp.conjugate,
+}
+
+def _normalize(raw):
+    """Normalize a user math string to SymPy-compatible syntax.
+
+    Handles:
+      * ^ -> **          (MATLAB/calculator exponent)
+      * × -> *  ÷ -> /  (unicode operators)
+      * bare i or j  ->  I  (imaginary unit, skips pi/sin/etc.)
+      * implicit mult: 2I -> 2*I,  3pi -> 3*pi
+    """
+    s = raw.strip()
+    s = s.replace('\u00d7', '*').replace('\u00f7', '/').replace('^', '**')
+    # Replace standalone imaginary i/j not inside a word  (e.g. j not in 'pi','sin')
+    s = _re.sub(r'(?<![A-Za-z_])j(?![A-Za-z_0-9])', 'I', s)
+    s = _re.sub(r'(?<![A-Za-z_])i(?![A-Za-z_0-9])', 'I', s)
+    # Implicit multiplication: digit directly before I or pi or e
+    s = _re.sub(r'(\d)(I\b)',  r'\1*\2', s)
+    s = _re.sub(r'(\d)(pi\b)', r'\1*\2', s)
+    s = _re.sub(r'(?<=[\d\)])(pi|e|I)\b', r'*\1', s)
+    return s
+
+def _parse_num(raw):
+    """Parse a numeric expression string to Python complex.
+
+    Accepts: integers, floats, fractions (1/2), exponents (2**3 or 2^3),
+    complex numbers (3+2i, 3+2j, 3+2*I), constants (pi, e),
+    and functions (sqrt, sin, cos, exp, log, abs, …).
+    """
+    s = _normalize(raw) or '0'
+    val = sp.sympify(s, locals=_SAFE_LOCALS, evaluate=True)
+    return complex(val.evalf())
 
 # ── Window dimensions ─────────────────────────────────────────────────────────
 W, H = 1280, 720
@@ -476,7 +524,6 @@ class TopicsPage(Page):
 
 
 # ── Complex Numbers page ──────────────────────────────────────────────────────
-import re as _re
 
 class ComplexPage(Page):
 
@@ -506,7 +553,7 @@ class ComplexPage(Page):
 
         cv.create_text(cx, 228, anchor="center",
                        font=("OPTIVagRound-Bold", 16), fill=NAVY,
-                       text="Enter expression  (e.g.  (3+2j) + (11-7j)  or  (3+2j) * (1-4j))")
+                       text="Enter expression  (e.g.  3+2i,  (1/2+3i)*(2-i),  sqrt(2)+pi*i,  2^3 + 1j)")
 
         self.expr = tk.Entry(self, width=52,
                              font=("OPTIVagRound-Bold", 20),
@@ -523,30 +570,20 @@ class ComplexPage(Page):
              ("OPTIVagRound-Bold", 20), GREEN, GRN_DK, self._calc, r=24)
 
     # ── Calculation ───────────────────────────────────────────────────────────
-    @staticmethod
-    def _safe_eval(s):
-        """Evaluate a complex arithmetic expression using a strict character whitelist."""
-        s = s.strip().replace(" ", "").replace("i", "j").replace("I", "j")
-        # Allow only digits, operators, parentheses, decimal point, and 'j'
-        if not _re.fullmatch(r'[\d\+\-\*\/\(\)\.j]+', s):
-            raise ValueError("Invalid characters in expression")
-        return eval(s, {"__builtins__": {}}, {})  # noqa: S307
-
     def _calc(self):
         raw = self.expr.get()
         if not raw.strip():
             self._result_modal(error="⚠  Please enter an expression")
             return
         try:
-            res = self._safe_eval(raw)
-            if not isinstance(res, (int, float, complex)):
-                raise ValueError
-            res = complex(res)
+            res = _parse_num(raw)
         except ZeroDivisionError:
             self._result_modal(error="⚠  Division by zero")
             return
         except Exception:
-            self._result_modal(error="⚠  Invalid expression\nExample: (3+2j) + (11-7j)")
+            self._result_modal(
+                error="⚠  Invalid expression\n"
+                      "Examples: (3+2i)*(1-i)  |  1/2+sqrt(3)*i  |  2^4  |  pi+e*i")
             return
 
         r, i  = res.real, res.imag
@@ -812,11 +849,11 @@ class LinearPage(Page):
         gh_B = rB * (CH + P*2) + 20
         self._grid_frame_B.place(x=B_LEFT, y=TOP)
 
-    # ── read grids → numpy (supports complex) ─────────────────────────────────
+    # ── read grids → numpy (supports complex, fractions, exponents) ─────────────
     @staticmethod
     def _parse_cell(s):
-        s = s.strip().replace(" ", "").replace("i", "j") or "0"
-        return complex(s)
+        s = s.strip() or "0"
+        return _parse_num(s)
 
     def _read_grid(self, cells):
         arr = np.array([[self._parse_cell(cells[r][c].get())
@@ -1001,11 +1038,11 @@ class FourierPage(Page):
         x_max_all = None
 
         for p in self._pieces:
-            raw = p["expr"].get().strip()
+            raw = _normalize(p["expr"].get().strip())
             try:
-                xa = float(sp.sympify(p["from"].get().strip()))
-                xb = float(sp.sympify(p["to"].get().strip()))
-                f_expr = sp.sympify(raw)
+                xa = float(sp.sympify(_normalize(p["from"].get().strip()), locals=_SAFE_LOCALS))
+                xb = float(sp.sympify(_normalize(p["to"].get().strip()),   locals=_SAFE_LOCALS))
+                f_expr = sp.sympify(raw, locals=_SAFE_LOCALS)
             except Exception as e:
                 _show_modal(self._app, "FOURIER SERIES", [],
                             error=f"⚠  Parse error: {e}", hdr_color=self._ORGDK)
@@ -1279,7 +1316,8 @@ class LaplacePage(Page):
         try:
             t, s = sp.Symbol("t", positive=True), sp.Symbol("s")
             op   = self.op_var.get()
-            expr = sp.sympify(raw)
+            locs = {**_SAFE_LOCALS, 't': t, 's': s}
+            expr = sp.sympify(_normalize(raw), locals=locs)
             if op == "Laplace Transform":
                 result = sp.laplace_transform(expr, t, s, noconds=True)
                 rows = [
