@@ -1041,21 +1041,25 @@ class FourierPage(Page):
             N = 5
 
         x_sym = sp.Symbol("x")  # symbolic variable used in all SymPy expressions
-        pieces_data = []          # will hold (sympy_expr, x_start, x_end) for each piece
+        pieces_data = []          # will hold (sympy_expr, x_start_float, x_end_float) for graph/plot
+        pieces_sym  = []          # will hold (sympy_expr, x_start_sym,   x_end_sym)   for exact coefficients
         x_min_all = None
         x_max_all = None
 
         for p in self._pieces:
             raw = _normalize(p["expr"].get().strip())  # normalize the function expression
             try:
-                xa = float(sp.sympify(_normalize(p["from"].get().strip()), locals=_SAFE_LOCALS))  # evaluate start of interval
-                xb = float(sp.sympify(_normalize(p["to"].get().strip()),   locals=_SAFE_LOCALS))  # evaluate end of interval
+                xa_sym = sp.sympify(_normalize(p["from"].get().strip()), locals=_SAFE_LOCALS)
+                xb_sym = sp.sympify(_normalize(p["to"].get().strip()),   locals=_SAFE_LOCALS)
+                xa = float(xa_sym)  # evaluate start of interval as float (for graph)
+                xb = float(xb_sym)  # evaluate end of interval as float (for graph)
                 f_expr = sp.sympify(raw, locals=_SAFE_LOCALS)  # parse expression into a SymPy object
             except Exception as e:
                 _show_modal(self._app, "FOURIER SERIES", [],
                             error=f"⚠  Parse error: {e}", hdr_color=self._ORGDK)
                 return
             pieces_data.append((f_expr, xa, xb))
+            pieces_sym.append((f_expr, xa_sym, xb_sym))
             if x_min_all is None or xa < x_min_all: x_min_all = xa  # track the overall minimum x
             if x_max_all is None or xb > x_max_all: x_max_all = xb  # track the overall maximum x
 
@@ -1063,32 +1067,40 @@ class FourierPage(Page):
         period_raw = self.period_entry.get().strip()
         if period_raw:
             try:
-                T = float(sp.sympify(period_raw))  # use the manually entered period
+                T_sym = sp.sympify(period_raw)
+                T = float(T_sym)  # use the manually entered period
             except Exception:
                 _show_modal(self._app, "FOURIER SERIES", [],
                             error="⚠  Invalid period T", hdr_color=self._ORGDK)
                 return
         else:
             T = x_max_all - x_min_all  # auto-detect period as the total span of all pieces
+            T_sym = pieces_sym[-1][2] - pieces_sym[0][1]  # exact symbolic period
 
-        L = T / 2  # half-period, used in the Fourier coefficient integrals
+        L = T / 2  # half-period (float), used for graph and formula display
+        L_sym = T_sym / 2  # half-period (symbolic), used for exact coefficient computation
 
         try:
             # a0 is the DC offset: (2/T) × integral of f(x) over one period
-            a0 = sum(float(sp.integrate(f, (x_sym, xa, xb)))
-                     for f, xa, xb in pieces_data) * (2 / T)
+            a0_sym = sp.simplify(sp.Integer(2) / T_sym * sum(
+                sp.integrate(f, (x_sym, xa_s, xb_s))
+                for f, xa_s, xb_s in pieces_sym))
+            a0 = float(a0_sym.evalf())
             an_list, bn_list = [], []
+            an_sym_list, bn_sym_list = [], []
             for n in range(1, N + 1):
-                # aₙ: cosine coefficient — (2/T) × integral of f(x)·cos(nπx/L)
-                an = sum(float(sp.integrate(
-                    f * sp.cos(n * sp.pi * x_sym / L), (x_sym, xa, xb)))
-                    for f, xa, xb in pieces_data) * (2 / T)
-                # bₙ: sine coefficient — (2/T) × integral of f(x)·sin(nπx/L)
-                bn = sum(float(sp.integrate(
-                    f * sp.sin(n * sp.pi * x_sym / L), (x_sym, xa, xb)))
-                    for f, xa, xb in pieces_data) * (2 / T)
-                an_list.append(an)
-                bn_list.append(bn)
+                # aₙ: cosine coefficient — (2/T) × integral of f(x)·cos(nπx/L), simplified
+                an_s = sp.simplify(sp.Integer(2) / T_sym * sum(
+                    sp.integrate(f * sp.cos(n * sp.pi * x_sym / L_sym), (x_sym, xa_s, xb_s))
+                    for f, xa_s, xb_s in pieces_sym))
+                # bₙ: sine coefficient — (2/T) × integral of f(x)·sin(nπx/L), simplified
+                bn_s = sp.simplify(sp.Integer(2) / T_sym * sum(
+                    sp.integrate(f * sp.sin(n * sp.pi * x_sym / L_sym), (x_sym, xa_s, xb_s))
+                    for f, xa_s, xb_s in pieces_sym))
+                an_list.append(float(an_s.evalf()))
+                bn_list.append(float(bn_s.evalf()))
+                an_sym_list.append(an_s)
+                bn_sym_list.append(bn_s)
         except Exception as e:
             _show_modal(self._app, "FOURIER SERIES", [],
                         error=f"⚠  Integration error: {e}", hdr_color=self._ORGDK)
@@ -1105,12 +1117,12 @@ class FourierPage(Page):
                 sign = "+" if bn >= 0 else "−"
                 formula += f"  {sign}  {abs(bn):.4g}·sin({n}πx/{L:.4g})"
 
-        self._show_result(T, L, a0, an_list, bn_list, formula,
-                          pieces_data, N, x_sym)
+        self._show_result(T, L, a0, a0_sym, an_list, bn_list, an_sym_list, bn_sym_list,
+                          formula, pieces_data, N, x_sym)
 
     # ── result modal ──────────────────────────────────────────────────────────
-    def _show_result(self, T, L, a0, an_list, bn_list, formula,
-                     pieces_data, N, x_sym):
+    def _show_result(self, T, L, a0, a0_sym, an_list, bn_list, an_sym_list, bn_sym_list,
+                     formula, pieces_data, N, x_sym):
         def f_piecewise(xv):
             # evaluate the original piecewise function at a single point xv
             for expr, xa, xb in pieces_data:
@@ -1225,7 +1237,9 @@ class FourierPage(Page):
         info.place(x=20, y=336, width=MW-40, height=316)
 
         # Period row
-        tk.Label(info, text=f"Period  T = {T:.6g}     |     L = T/2 = {L:.6g}     |     a₀ = {a0:.6g}     →     a₀/2 = {a0/2:.6g}",
+        a0_str      = str(a0_sym)
+        a0_half_str = str(sp.simplify(a0_sym / 2))
+        tk.Label(info, text=f"Period  T = {T:.6g}  |  L = T/2 = {L:.6g}  |  a₀ = {a0_str}  →  a₀/2 = {a0_half_str}",
                  font=("OPTIVagRound-Bold", 13), bg=CARD, fg=NAVY,
                  anchor="w").pack(fill="x", padx=14, pady=(10, 4))
 
@@ -1245,10 +1259,12 @@ class FourierPage(Page):
             tk.Label(tbl_frame, text=str(n), font=("OPTIVagRound-Bold", 11),
                      bg=bg, fg=NAVY, width=4,
                      relief="flat").grid(row=n, column=0, padx=2, pady=1)
-            tk.Label(tbl_frame, text=f"{an_list[n-1]:.6g}", font=("OPTIVagRound-Bold", 11),
+            an_str = str(an_sym_list[n-1]) if n-1 < len(an_sym_list) else f"{an_list[n-1]:.6g}"
+            bn_str = str(bn_sym_list[n-1]) if n-1 < len(bn_sym_list) else f"{bn_list[n-1]:.6g}"
+            tk.Label(tbl_frame, text=an_str, font=("OPTIVagRound-Bold", 11),
                      bg=bg, fg=NAVY, width=18,
                      relief="flat").grid(row=n, column=1, padx=2, pady=1)
-            tk.Label(tbl_frame, text=f"{bn_list[n-1]:.6g}", font=("OPTIVagRound-Bold", 11),
+            tk.Label(tbl_frame, text=bn_str, font=("OPTIVagRound-Bold", 11),
                      bg=bg, fg=NAVY, width=18,
                      relief="flat").grid(row=n, column=2, padx=2, pady=1)
         if N > 8:
