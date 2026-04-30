@@ -1,10 +1,14 @@
 import tkinter as tk          # GUI framework for all windows, canvases, and widgets
-from tkinter import ttk       # styled widgets like Combobox (dropdown)
+from tkinter import ttk       # styled widgets like Combobox (dropout)
 import cmath                  # complex math functions: phase angle, polar form
 import math                   # standard math: degrees conversion, cos, sin
 import re as _re              # regular expressions used to clean up user input strings
 import numpy as np            # numerical matrix operations for Linear Algebra
 import sympy as sp            # symbolic math engine for integration, Laplace, simplification
+import matplotlib
+matplotlib.use("TkAgg")       # must be set before pyplot is imported
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # ── Shared input parser (used by all pages) ───────────────────────────────────
 # Only these names are recognized when evaluating user-typed expressions — nothing else can be executed
@@ -912,6 +916,8 @@ class LinearPage(Page):
 class FourierPage(Page):
     _ORG   = "#F97316"
     _ORGDK = "#C05010"
+    _n_sym = sp.Symbol("n", integer=True, positive=True)
+
     _MAX_PIECES = 6
 
     def __init__(self, app):
@@ -919,12 +925,12 @@ class FourierPage(Page):
         self.cv = tk.Canvas(self, width=W, height=H,
                             bd=0, highlightthickness=0, bg=SKY)
         self.cv.place(x=0, y=0)
-        self._pieces = []   # list of dicts: {frame, expr, x_from, x_to}
+        self._pieces = []
         self._draw_static()
-        self._add_piece("0",   "-pi", "0")   # default piece 1: f(x)=0 on [-π, 0]
-        self._add_piece("x",   "0",   "pi")  # default piece 2: f(x)=x on [0, π]
+        self._add_piece("0", "-pi", "0")   # default piece 1
+        self._add_piece("x", "0",  "pi")   # default piece 2
 
-    # ── static chrome ─────────────────────────────────────────────────────────
+    # ── static chrome ──────────────────────────────────────────────────────────
     def _draw_static(self):
         cv = self.cv
         cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
@@ -936,18 +942,19 @@ class FourierPage(Page):
         # Main input card
         rr(cv, 30, 128, W-30, 598, r=24, fill=CARD, outline="")
 
-        # Column header labels
+        # Column headers
         cv.create_text(90,  153, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY, text="#")
         cv.create_text(390, 153, anchor="center",
-                       font=("OPTIVagRound-Bold", 12), fill=NAVY, text="f(x)  Expression  (use x, sin, cos, pi, abs, …)")
+                       font=("OPTIVagRound-Bold", 12), fill=NAVY,
+                       text="f(x)  Expression  (use x, sin, cos, pi, abs, …)")
         cv.create_text(730, 153, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY, text="From  x =")
         cv.create_text(910, 153, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY, text="To  x =")
         cv.create_line(50, 166, W-50, 166, fill="#4A7AB5", width=1)
 
-        # Piece row container (frame packed into canvas area)
+        # Piece row container
         self._piece_container = tk.Frame(self, bg=CARD)
         self._piece_container.place(x=50, y=172, width=W-100, height=270)
 
@@ -959,30 +966,20 @@ class FourierPage(Page):
              ("OPTIVagRound-Bold", 12), "#DC2626", "#7F1D1D",
              self._remove_piece, r=14)
 
-        # Harmonics N
+        # Harmonics N  (limits auto-detected from piece bounds)
         cv.create_text(460, 474, anchor="w",
-                       font=("OPTIVagRound-Bold", 14), fill=NAVY, text="Harmonics  N :")
-        self.nterms_var = tk.StringVar(value="5")
-        tk.Spinbox(self, from_=1, to=20, textvariable=self.nterms_var,
-                   width=3, font=("OPTIVagRound-Bold", 14),
+                       font=("OPTIVagRound-Bold", 14), fill=NAVY,
+                       text="Harmonics  N :")
+        self.nterms_var = tk.StringVar(value="10")
+        tk.Spinbox(self, from_=1, to=50, textvariable=self.nterms_var,
+                   width=4, font=("OPTIVagRound-Bold", 14),
                    bg="#D6EEFA", fg=NAVY, relief="flat",
                    highlightthickness=1, highlightbackground=NAVY,
                    justify="center").place(x=616, y=456, height=36)
 
-        # Period T
-        cv.create_text(678, 474, anchor="w",
-                       font=("OPTIVagRound-Bold", 14), fill=NAVY,
-                       text="Period  T  (blank = auto) :")
-        self.period_entry = tk.Entry(self, font=("OPTIVagRound-Bold", 14),
-                                     bg="#D6EEFA", fg=NAVY, relief="flat",
-                                     highlightthickness=1, highlightbackground=NAVY,
-                                     insertbackground=NAVY, justify="center", width=10)
-        self.period_entry.place(x=920, y=456, height=36)
-
-        # Hint
-        cv.create_text(W//2, 506,
+        cv.create_text(690, 474, anchor="w",
                        font=("OPTIVagRound-Bold", 11), fill=NAVY,
-                       text="Tip: use  pi  for π,  sin(x),  cos(x),  x**2,  abs(x), etc.")
+                       text="(limits a & b are auto-detected from piece bounds)")
 
         # CALCULATE button
         cbtn(cv, W//2-165, 516, W//2+165, 576, "CALCULATE",
@@ -991,7 +988,7 @@ class FourierPage(Page):
     # ── piece row management ──────────────────────────────────────────────────
     def _add_piece(self, default_expr="0", x_from="0", x_to="1"):
         if len(self._pieces) >= self._MAX_PIECES:
-            return  # silently do nothing if the maximum number of pieces is already reached
+            return
         idx = len(self._pieces)
         ef = dict(font=("OPTIVagRound-Bold", 13), bg="white", fg=NAVY,
                   relief="flat", highlightthickness=2,
@@ -1023,133 +1020,90 @@ class FourierPage(Page):
             side="left", ipady=5)
 
         self._pieces.append({"frame": row, "expr": expr_var,
-                              "from": from_var, "to": to_var})  # store the StringVars so _calc() can read the values later
+                              "from": from_var, "to": to_var})
 
     def _remove_piece(self):
         if len(self._pieces) <= 1:
-            return  # always keep at least one piece so there is something to compute
-        p = self._pieces.pop()    # remove the last piece from the list
-        p["frame"].destroy()      # destroy its widget row so it disappears from the UI
+            return
+        p = self._pieces.pop()
+        p["frame"].destroy()
 
     # ── calculation ───────────────────────────────────────────────────────────
     def _calc(self):
         if not self._pieces:
             return
+
+        x_sym = sp.Symbol("x")
+        n_sym = self._n_sym
+
         try:
             N = int(self.nterms_var.get())
         except Exception:
-            N = 5
+            N = 10
 
-        x_sym = sp.Symbol("x")  # symbolic variable used in all SymPy expressions
-        pieces_data = []          # will hold (sympy_expr, x_start_float, x_end_float) for graph/plot
-        pieces_sym  = []          # will hold (sympy_expr, x_start_sym,   x_end_sym)   for exact coefficients
-        x_min_all = None
-        x_max_all = None
+        locs = {**_SAFE_LOCALS, 'x': x_sym, 'Piecewise': sp.Piecewise}
 
+        # Parse each piece and collect symbolic bounds
+        pieces_sym = []   # (f_expr, xa_sym, xb_sym)
         for p in self._pieces:
-            raw = _normalize(p["expr"].get().strip())  # normalize the function expression
+            raw = _normalize(p["expr"].get().strip())
             try:
-                xa_sym = sp.sympify(_normalize(p["from"].get().strip()), locals=_SAFE_LOCALS)
-                xb_sym = sp.sympify(_normalize(p["to"].get().strip()),   locals=_SAFE_LOCALS)
-                xa = float(xa_sym)  # evaluate start of interval as float (for graph)
-                xb = float(xb_sym)  # evaluate end of interval as float (for graph)
-                f_expr = sp.sympify(raw, locals=_SAFE_LOCALS)  # parse expression into a SymPy object
+                xa_sym = sp.sympify(_normalize(p["from"].get().strip()), locals=locs)
+                xb_sym = sp.sympify(_normalize(p["to"].get().strip()),   locals=locs)
+                f_expr = sp.sympify(raw, locals=locs)
             except Exception as e:
                 _show_modal(self._app, "FOURIER SERIES", [],
                             error=f"⚠  Parse error: {e}", hdr_color=self._ORGDK)
                 return
-            pieces_data.append((f_expr, xa, xb))
             pieces_sym.append((f_expr, xa_sym, xb_sym))
-            if x_min_all is None or xa < x_min_all: x_min_all = xa  # track the overall minimum x
-            if x_max_all is None or xb > x_max_all: x_max_all = xb  # track the overall maximum x
 
-        # Period
-        period_raw = self.period_entry.get().strip()
-        if period_raw:
-            try:
-                T_sym = sp.sympify(period_raw)
-                T = float(T_sym)  # use the manually entered period
-            except Exception:
-                _show_modal(self._app, "FOURIER SERIES", [],
-                            error="⚠  Invalid period T", hdr_color=self._ORGDK)
-                return
-        else:
-            T = x_max_all - x_min_all  # auto-detect period as the total span of all pieces
-            T_sym = pieces_sym[-1][2] - pieces_sym[0][1]  # exact symbolic period
+        # Auto-detect limits from outermost piece bounds
+        a_sym = pieces_sym[0][1]
+        b_sym = pieces_sym[-1][2]
+        L_sym = (b_sym - a_sym) / 2   # half-period
 
-        L = T / 2  # half-period (float), used for graph and formula display
-        L_sym = T_sym / 2  # half-period (symbolic), used for exact coefficient computation
+        # Build a SymPy Piecewise from all piece rows
+        pw_args = [(f, (x_sym >= xa) & (x_sym <= xb))
+                   for f, xa, xb in pieces_sym]
+        pw_args.append((sp.Integer(0), True))   # fallback for any gap
+        f_full = sp.Piecewise(*pw_args)
 
         try:
-            # a0 is the DC offset: (2/T) × integral of f(x) over one period
-            a0_sym = sp.simplify(sp.Integer(2) / T_sym * sum(
-                sp.integrate(f, (x_sym, xa_s, xb_s))
-                for f, xa_s, xb_s in pieces_sym))
-            a0 = float(a0_sym.evalf())
-            an_list, bn_list = [], []
-            an_sym_list, bn_sym_list = [], []
-            for n in range(1, N + 1):
-                # aₙ: cosine coefficient — (2/T) × integral of f(x)·cos(nπx/L), simplified
-                an_s = sp.simplify(sp.Integer(2) / T_sym * sum(
-                    sp.integrate(f * sp.cos(n * sp.pi * x_sym / L_sym), (x_sym, xa_s, xb_s))
-                    for f, xa_s, xb_s in pieces_sym))
-                # bₙ: sine coefficient — (2/T) × integral of f(x)·sin(nπx/L), simplified
-                bn_s = sp.simplify(sp.Integer(2) / T_sym * sum(
-                    sp.integrate(f * sp.sin(n * sp.pi * x_sym / L_sym), (x_sym, xa_s, xb_s))
-                    for f, xa_s, xb_s in pieces_sym))
-                an_list.append(float(an_s.evalf()))
-                bn_list.append(float(bn_s.evalf()))
-                an_sym_list.append(an_s)
-                bn_sym_list.append(bn_s)
+            # Compute symbolic general coefficients  (same formulas as asdd2.py)
+            a0_sym = sp.simplify(
+                sp.Rational(1, 2) / L_sym *
+                sp.integrate(f_full, (x_sym, a_sym, b_sym)))
+
+            an_sym = sp.simplify(
+                sp.Integer(1) / L_sym *
+                sp.integrate(f_full * sp.cos(n_sym * sp.pi * x_sym / L_sym),
+                             (x_sym, a_sym, b_sym)))
+
+            bn_sym = sp.simplify(
+                sp.Integer(1) / L_sym *
+                sp.integrate(f_full * sp.sin(n_sym * sp.pi * x_sym / L_sym),
+                             (x_sym, a_sym, b_sym)))
+
+            # Build the Fourier series by substituting n = 1 … N, then simplify
+            series = a0_sym
+            for k in range(1, N + 1):
+                ak = an_sym.subs(n_sym, k)
+                bk = bn_sym.subs(n_sym, k)
+                series += ak * sp.cos(k * sp.pi * x_sym / L_sym)
+                series += bk * sp.sin(k * sp.pi * x_sym / L_sym)
+            series = sp.simplify(series)
+
         except Exception as e:
             _show_modal(self._app, "FOURIER SERIES", [],
                         error=f"⚠  Integration error: {e}", hdr_color=self._ORGDK)
             return
 
-        # Build formula string — only include terms where the coefficient is non-negligible (> 1e-10)
-        formula = f"f(x) ≈ {a0/2:.4g}"
-        for n in range(1, N + 1):
-            an, bn = an_list[n-1], bn_list[n-1]
-            if abs(an) > 1e-10:  # skip near-zero cosine terms to keep the formula clean
-                sign = "+" if an >= 0 else "−"
-                formula += f"  {sign}  {abs(an):.4g}·cos({n}πx/{L:.4g})"
-            if abs(bn) > 1e-10:  # skip near-zero sine terms
-                sign = "+" if bn >= 0 else "−"
-                formula += f"  {sign}  {abs(bn):.4g}·sin({n}πx/{L:.4g})"
-
-        self._show_result(T, L, a0, a0_sym, an_list, bn_list, an_sym_list, bn_sym_list,
-                          formula, pieces_data, N, x_sym)
+        self._show_result(f_full, a_sym, b_sym, L_sym, N,
+                          a0_sym, an_sym, bn_sym, series, x_sym)
 
     # ── result modal ──────────────────────────────────────────────────────────
-    def _show_result(self, T, L, a0, a0_sym, an_list, bn_list, an_sym_list, bn_sym_list,
-                     formula, pieces_data, N, x_sym):
-        def f_piecewise(xv):
-            # evaluate the original piecewise function at a single point xv
-            for expr, xa, xb in pieces_data:
-                if xa - 1e-9 <= xv <= xb + 1e-9:  # small tolerance avoids boundary gaps
-                    try:
-                        return float(expr.subs(x_sym, xv))
-                    except Exception:
-                        return 0.0
-            # if xv is outside all pieces, use the periodic extension to wrap it back into range
-            x_min = pieces_data[0][1]
-            shifted = ((xv - x_min) % T) + x_min  # shift xv into the first period
-            for expr, xa, xb in pieces_data:
-                if xa - 1e-9 <= shifted <= xb + 1e-9:
-                    try:
-                        return float(expr.subs(x_sym, shifted))
-                    except Exception:
-                        return 0.0
-            return 0.0
-
-        def f_fourier(xv):
-            # evaluate the Fourier series approximation at a single point xv
-            v = a0 / 2  # DC term
-            for n, (an, bn) in enumerate(zip(an_list, bn_list), 1):
-                v += an * math.cos(n * math.pi * xv / L)  # add the nth cosine term
-                v += bn * math.sin(n * math.pi * xv / L)  # add the nth sine term
-            return v
-
+    def _show_result(self, f_expr, a_sym, b_sym, L_sym, N,
+                     a0_sym, an_sym, bn_sym, series, x_sym):
         MW, MH = 1140, 700
         m = tk.Toplevel()
         m.title("Fourier Series — Result")
@@ -1159,135 +1113,112 @@ class FourierPage(Page):
         sy = max(0, (m.winfo_screenheight() - MH) // 2)
         m.geometry(f"{MW}x{MH}+{sx}+{sy}")
 
-        # Header bar
+        # ── Header bar ────────────────────────────────────────────────────────
         hcv = tk.Canvas(m, width=MW, height=56, bg=self._ORGDK,
                         bd=0, highlightthickness=0)
         hcv.place(x=0, y=0)
         hcv.create_text(MW//2, 28, text="FOURIER SERIES — RESULT",
                         font=("OPTIVagRound-Bold", 22), fill=WHITE)
 
-        # ── Graph ─────────────────────────────────────────────────────────────
-        GW, GH = MW - 40, 260
-        gcv = tk.Canvas(m, width=GW, height=GH, bg="#0D1B2A",
-                        bd=0, highlightthickness=1, highlightbackground="#4A7AB5")
-        gcv.place(x=20, y=66)
+        # ── Graph (matplotlib, left column) ───────────────────────────────────
+        GW, GH = 650, 310
+        graph_frame = tk.Frame(m, bg="#0D1B2A", width=GW, height=GH)
+        graph_frame.place(x=18, y=62)
+        graph_frame.pack_propagate(False)
 
-        x_min = pieces_data[0][1]
-        x_max = pieces_data[-1][2]
-        span  = x_max - x_min
-        x_p0  = x_min - span * 0.15  # extend the plot 15% beyond the left boundary
-        x_p1  = x_max + span * 0.15  # extend the plot 15% beyond the right boundary
-        STEPS = 700  # number of sample points — higher = smoother curve
-        xs = [x_p0 + i * (x_p1 - x_p0) / STEPS for i in range(STEPS + 1)]  # evenly spaced x values
-
+        fig_ref = [None]
         try:
-            ys_o = [f_piecewise(v) for v in xs]
-            ys_f = [f_fourier(v)   for v in xs]
+            a_f    = float(a_sym.evalf())
+            b_f    = float(b_sym.evalf())
+            x_vals = np.linspace(a_f, b_f, 1000)
+
+            f_lamb = sp.lambdify(x_sym, f_expr, "numpy")
+            s_lamb = sp.lambdify(x_sym, series,  "numpy")
+            y_orig = np.array(f_lamb(x_vals), dtype=float)
+            y_ser  = np.real(np.array(s_lamb(x_vals), dtype=complex)).astype(float)
+
+            fig, ax = plt.subplots(figsize=(GW / 100, GH / 100), dpi=100)
+            fig_ref[0] = fig
+            fig.patch.set_facecolor("#0D1B2A")
+            ax.set_facecolor("#020617")
+            ax.plot(x_vals, y_orig, color="white", lw=1.5, ls="--", label="Original  f(x)")
+            ax.plot(x_vals, y_ser,  color=self._ORG, lw=2,   label=f"Fourier approx  N={N}")
+            ax.axhline(0, color="#4A7AB5", lw=0.8)
+            ax.axvline(0, color="#4A7AB5", lw=0.8)
+            ax.set_title("Fourier Series Approximation", color="white", fontsize=11)
+            ax.set_xlabel("x", color="white")
+            ax.set_ylabel("f(x)", color="white")
+            ax.tick_params(colors="white")
+            ax.grid(True, alpha=0.25, color="#4A7AB5")
+            for spine in ax.spines.values():
+                spine.set_color("#4A7AB5")
+            leg = ax.legend(facecolor="#1B2A72", edgecolor="#4A7AB5", fontsize=9)
+            for t in leg.get_texts():
+                t.set_color("white")
+            fig.tight_layout(pad=0.5)
+
+            canvas = FigureCanvasTkAgg(fig, master=graph_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill="both", expand=True)
         except Exception:
-            ys_o = ys_f = [0.0] * len(xs)
+            tk.Label(graph_frame, text="Graph unavailable",
+                     bg="#0D1B2A", fg=WHITE,
+                     font=("OPTIVagRound-Bold", 14)).pack(expand=True)
 
-        y_lo = min(ys_o + ys_f); y_hi = max(ys_o + ys_f)
-        if abs(y_hi - y_lo) < 1e-10: y_lo -= 1; y_hi += 1  # prevent zero-height graph for flat functions
-        pad = (y_hi - y_lo) * 0.12
-        y_lo -= pad; y_hi += pad  # add vertical padding so curves don't touch the graph edges
+        def _on_close():
+            if fig_ref[0] is not None:
+                plt.close(fig_ref[0])   # free matplotlib memory when the popup closes
+            m.destroy()
 
-        MG = 46  # margin in pixels around the graph area for axis labels
-        pw = GW - 2*MG; ph = GH - 2*MG  # plot width and height inside the margins
+        # ── Coefficients panel (right column) ─────────────────────────────────
+        CW = MW - GW - 54
+        coef_frame = tk.Frame(m, bg=CARD, width=CW, height=GH)
+        coef_frame.place(x=GW + 36, y=62)
+        coef_frame.pack_propagate(False)
 
-        def tx(v): return MG + (v - x_p0) / (x_p1 - x_p0) * pw   # map a math x-value to a canvas pixel x
-        def ty(v): return MG + (1 - (v - y_lo) / (y_hi - y_lo)) * ph  # map a math y-value to a canvas pixel y (inverted)
+        tk.Label(coef_frame, text="FOURIER COEFFICIENTS",
+                 font=("OPTIVagRound-Bold", 13), bg="#1B4F8A", fg=WHITE
+                 ).pack(fill="x")
 
-        # grid
-        for i in range(5):
-            yg = y_lo + i*(y_hi-y_lo)/4
-            gy = ty(yg)
-            gcv.create_line(MG, gy, MG+pw, gy, fill="#1E3A5F", width=1)
-            gcv.create_text(MG-4, gy, anchor="e",
-                            text=f"{yg:.2g}", font=("Helvetica", 9), fill="#7EB8D8")
-        for i in range(6):
-            xg = x_p0 + i*(x_p1-x_p0)/5
-            gx = tx(xg)
-            gcv.create_line(gx, MG, gx, MG+ph, fill="#1E3A5F", width=1)
-            gcv.create_text(gx, MG+ph+5, anchor="n",
-                            text=f"{xg:.2g}", font=("Helvetica", 9), fill="#7EB8D8")
-        if y_lo <= 0 <= y_hi:
-            gcv.create_line(MG, ty(0), MG+pw, ty(0), fill="#4A7AB5", width=1)
-        if x_p0 <= 0 <= x_p1:
-            gcv.create_line(tx(0), MG, tx(0), MG+ph, fill="#4A7AB5", width=1)
+        for lbl, val in [
+            ("a₀  =",  sp.simplify(a0_sym)),
+            ("aₙ  =",  sp.simplify(an_sym)),
+            ("bₙ  =",  sp.simplify(bn_sym)),
+        ]:
+            row = tk.Frame(coef_frame, bg=CARD)
+            row.pack(fill="x", padx=8, pady=5)
+            tk.Label(row, text=lbl, font=("OPTIVagRound-Bold", 12),
+                     bg=CARD, fg=NAVY, width=5, anchor="w").pack(side="left")
+            tk.Label(row, text=str(val),
+                     font=("Consolas", 11), bg="#D6EEFA", fg=NAVY,
+                     anchor="nw", justify="left", wraplength=CW - 70,
+                     padx=6, pady=4).pack(side="left", fill="x", expand=True)
 
-        # original (white dashed) — the true piecewise function for reference
-        pts_o = [c for i in range(len(xs)) for c in (tx(xs[i]), ty(ys_o[i]))]  # flatten (x,y) pairs into a flat list for create_line
-        gcv.create_line(*pts_o, fill="white", width=1, dash=(4,4), smooth=True)
+        # ── Final series (full-width strip) ───────────────────────────────────
+        bottom_y = 62 + GH + 8
+        bottom_h = MH - bottom_y - 50
+        series_frame = tk.Frame(m, bg=CARD)
+        series_frame.place(x=18, y=bottom_y, width=MW - 36, height=bottom_h)
 
-        # fourier (orange) — the Fourier approximation with N harmonic terms
-        pts_f = [c for i in range(len(xs)) for c in (tx(xs[i]), ty(ys_f[i]))]
-        gcv.create_line(*pts_f, fill=self._ORG, width=2, smooth=True)
+        tk.Label(series_frame, text="FINAL FOURIER SERIES",
+                 font=("OPTIVagRound-Bold", 13), bg="#1B4F8A", fg=WHITE
+                 ).pack(fill="x")
 
-        # legend
-        gcv.create_line(GW-190, 18, GW-160, 18, fill="white", width=1, dash=(4,4))
-        gcv.create_text(GW-155, 18, anchor="w", text="Original f(x)",
-                        font=("Helvetica", 10), fill="white")
-        gcv.create_line(GW-190, 36, GW-160, 36, fill=self._ORG, width=2)
-        gcv.create_text(GW-155, 36, anchor="w",
-                        text=f"Fourier approx  (N={N})",
-                        font=("Helvetica", 10), fill=self._ORG)
+        txt = tk.Text(series_frame, font=("Consolas", 12),
+                      bg="#020617", fg=WHITE, relief="flat",
+                      wrap="word", padx=8, pady=6)
+        txt.pack(fill="both", expand=True, padx=8, pady=(4, 8))
+        txt.insert("1.0", "f(x)  ≈  " + str(series))
+        txt.configure(state="disabled")
 
-        # ── Info area ─────────────────────────────────────────────────────────
-        info = tk.Frame(m, bg=CARD)
-        info.place(x=20, y=336, width=MW-40, height=316)
-
-        # Period row
-        a0_str      = str(a0_sym)
-        a0_half_str = str(sp.simplify(a0_sym / 2))
-        tk.Label(info, text=f"Period  T = {T:.6g}  |  L = T/2 = {L:.6g}  |  a₀ = {a0_str}  →  a₀/2 = {a0_half_str}",
-                 font=("OPTIVagRound-Bold", 13), bg=CARD, fg=NAVY,
-                 anchor="w").pack(fill="x", padx=14, pady=(10, 4))
-
-        # Coefficient table  (scrollable if many terms)
-        tbl_frame = tk.Frame(info, bg=CARD)
-        tbl_frame.pack(fill="x", padx=14, pady=4)
-
-        hdrs = [("n", 4), ("aₙ", 18), ("bₙ", 18)]
-        for col, (h, w) in enumerate(hdrs):
-            tk.Label(tbl_frame, text=h, font=("OPTIVagRound-Bold", 12),
-                     bg="#1B4F8A", fg=WHITE, width=w,
-                     relief="flat").grid(row=0, column=col, padx=2, pady=1, sticky="ew")
-
-        show_n = min(N, 8)  # cap the visible table at 8 rows to avoid overcrowding the UI
-        for n in range(1, show_n + 1):
-            bg = CARD if n % 2 == 0 else "#D6EEFA"  # alternate row colors for readability
-            tk.Label(tbl_frame, text=str(n), font=("OPTIVagRound-Bold", 11),
-                     bg=bg, fg=NAVY, width=4,
-                     relief="flat").grid(row=n, column=0, padx=2, pady=1)
-            an_str = str(an_sym_list[n-1]) if n-1 < len(an_sym_list) else f"{an_list[n-1]:.6g}"
-            bn_str = str(bn_sym_list[n-1]) if n-1 < len(bn_sym_list) else f"{bn_list[n-1]:.6g}"
-            tk.Label(tbl_frame, text=an_str, font=("OPTIVagRound-Bold", 11),
-                     bg=bg, fg=NAVY, width=18,
-                     relief="flat").grid(row=n, column=1, padx=2, pady=1)
-            tk.Label(tbl_frame, text=bn_str, font=("OPTIVagRound-Bold", 11),
-                     bg=bg, fg=NAVY, width=18,
-                     relief="flat").grid(row=n, column=2, padx=2, pady=1)
-        if N > 8:
-            tk.Label(tbl_frame, text=f"… and {N-8} more terms",
-                     font=("OPTIVagRound-Bold", 11), bg=CARD, fg=NAVY,
-                     anchor="w").grid(row=show_n+1, column=0, columnspan=3,
-                                      padx=4, pady=2, sticky="w")
-
-        # General formula
-        tk.Label(info, text="General Formula:",
-                 font=("OPTIVagRound-Bold", 13), bg=CARD, fg=NAVY,
-                 anchor="w").pack(fill="x", padx=14, pady=(8, 0))
-        tk.Label(info, text=formula, wraplength=MW-80,
-                 font=("OPTIVagRound-Bold", 11), bg="#D6EEFA", fg=NAVY,
-                 relief="flat", justify="left",
-                 padx=8, pady=6).pack(fill="x", padx=14, pady=(2, 8))
-
-        # Close button
+        # ── Close button ──────────────────────────────────────────────────────
         tk.Button(m, text="CLOSE", font=("OPTIVagRound-Bold", 14),
                   bg=RED, fg=WHITE, relief="flat",
                   activebackground=RED_DK,
-                  command=m.destroy, cursor="hand2").place(
-            x=MW//2-70, y=MH-46, width=140, height=36)
+                  command=_on_close, cursor="hand2").place(
+            x=MW // 2 - 70, y=MH - 46, width=140, height=36)
+
+        m.protocol("WM_DELETE_WINDOW", _on_close)  # also close figure when X is clicked
 
 
 # ── Laplace Transform page ────────────────────────────────────────────────────
