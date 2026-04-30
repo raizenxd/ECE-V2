@@ -1,12 +1,13 @@
-import tkinter as tk
-from tkinter import ttk
-import cmath
-import math
-import re as _re
-import numpy as np
-import sympy as sp
+import tkinter as tk          # GUI framework for all windows, canvases, and widgets
+from tkinter import ttk       # styled widgets like Combobox (dropdown)
+import cmath                  # complex math functions: phase angle, polar form
+import math                   # standard math: degrees conversion, cos, sin
+import re as _re              # regular expressions used to clean up user input strings
+import numpy as np            # numerical matrix operations for Linear Algebra
+import sympy as sp            # symbolic math engine for integration, Laplace, simplification
 
 # ── Shared input parser (used by all pages) ───────────────────────────────────
+# Only these names are recognized when evaluating user-typed expressions — nothing else can be executed
 _SAFE_LOCALS = {
     # constants
     'pi': sp.pi, 'e': sp.E, 'E': sp.E, 'I': sp.I,
@@ -49,31 +50,33 @@ def _parse_num(raw):
     complex numbers (3+2i, 3+2j, 3+2*I), constants (pi, e),
     and functions (sqrt, sin, cos, exp, log, abs, …).
     """
-    s = _normalize(raw) or '0'
-    val = sp.sympify(s, locals=_SAFE_LOCALS, evaluate=True)
-    return complex(val.evalf())
+    s = _normalize(raw) or '0'                                 # clean the string; default to '0' if blank
+    val = sp.sympify(s, locals=_SAFE_LOCALS, evaluate=True)    # parse into a SymPy expression using the safe whitelist
+    return complex(val.evalf())                                # evaluate to a numeric value and return as Python complex
 
 # ── Window dimensions ─────────────────────────────────────────────────────────
-W, H = 1280, 720
+W, H = 1280, 720  # fixed window size in pixels — all pages are drawn to fit exactly this
 
 # ── Color palette ─────────────────────────────────────────────────────────────
-SKY    = "#29ABE2"
-RAY    = "#55CCFF"
-PURPLE = "#5C3E9E"
-GREEN  = "#6DD820"
-GRN_DK = "#3A8A00"
-RED    = "#E84040"
-RED_DK = "#A01010"
-YELLOW = "#F5C518"
-YEL_DK = "#B08800"
-NAVY   = "#1B2A72"
-WHITE  = "#FFFFFF"
-CARD   = "#5ABDE8"
+# All colors are defined here so the whole app theme can be changed in one place
+SKY    = "#29ABE2"  # main background color
+RAY    = "#55CCFF"  # spotlight ray color on the home screen
+PURPLE = "#5C3E9E"  # footer bar color
+GREEN  = "#6DD820"  # titles, START button, positive highlights
+GRN_DK = "#3A8A00"  # dark green for button drop-shadow
+RED    = "#E84040"  # BACK button and error messages
+RED_DK = "#A01010"  # dark red for button drop-shadow
+YELLOW = "#F5C518"  # HOME button and Laplace highlights
+YEL_DK = "#B08800"  # dark yellow for button drop-shadow
+NAVY   = "#1B2A72"  # text outlines, header bars
+WHITE  = "#FFFFFF"  # general text color
+CARD   = "#5ABDE8"  # card/panel background color
 
 
 # ── Drawing helpers ───────────────────────────────────────────────────────────
 def rr(cv, x1, y1, x2, y2, r=22, **kw):
     """Smooth rounded rectangle as a polygon."""
+    # Each corner is defined as 3 points so Tkinter's smooth=True curves it correctly
     p = [
         x1+r, y1,  x2-r, y1,
         x2,   y1,  x2,   y1+r,
@@ -88,32 +91,32 @@ def rr(cv, x1, y1, x2, y2, r=22, **kw):
 
 def otxt(cv, x, y, text, font, fill=WHITE, ol=NAVY, ow=3, **kw):
     """Canvas text with a solid outline effect."""
+    # Draw the outline copies first by offsetting in every direction, then draw the real text on top
     for dx in range(-ow, ow + 1):
         for dy in range(-ow, ow + 1):
-            if dx or dy:
+            if dx or dy:  # skip (0,0) — that is the main text drawn below
                 cv.create_text(x + dx, y + dy, text=text, font=font, fill=ol, **kw)
     return cv.create_text(x, y, text=text, font=font, fill=fill, **kw)
 
 
 def cbtn(cv, x1, y1, x2, y2, label, font, color, dark, cmd, r=20):
     """Canvas button with drop-shadow, body, label — all bound to cmd."""
-    rr(cv, x1+4, y1+4, x2+4, y2+4, r=r, fill=dark, outline="")
-    b = rr(cv, x1, y1, x2, y2, r=r, fill=color, outline="")
-    t = cv.create_text((x1+x2)//2, (y1+y2)//2, text=label, font=font, fill=WHITE)
+    rr(cv, x1+4, y1+4, x2+4, y2+4, r=r, fill=dark, outline="")   # shadow drawn 4px offset behind the button
+    b = rr(cv, x1, y1, x2, y2, r=r, fill=color, outline="")       # the visible button face
+    t = cv.create_text((x1+x2)//2, (y1+y2)//2, text=label, font=font, fill=WHITE)  # centered label
     for tag in (b, t):
-        cv.tag_bind(tag, "<Button-1>", lambda e, c=cmd: c())
-    return b, t
-
+        cv.tag_bind(tag, "<Button-1>", lambda e, c=cmd: c())  # both shape and text are clickable
+    return b, t  # return the canvas IDs so callers can bind additional events if needed
 
 # ── App shell ─────────────────────────────────────────────────────────────────
 class App(tk.Tk):
     def __init__(self):
-        super().__init__()
+        super().__init__()              # initialize the root Tkinter window
         self.title("ECETHON")
-        self.geometry(f"{W}x{H}")
-        self.resizable(False, False)
+        self.geometry(f"{W}x{H}")      # set the fixed window size
+        self.resizable(False, False)   # prevent the user from resizing the window
 
-        self._pages = {}
+        self._pages = {}  # dictionary mapping page name → page frame instance
         for name, cls in [
             ("home",    HomePage),
             ("topics",  TopicsPage),
@@ -124,41 +127,41 @@ class App(tk.Tk):
             ("fourier", FourierPage),
             ("laplace", LaplacePage),
         ]:
-            p = cls(self)
-            p.place(x=0, y=0, width=W, height=H)
+            p = cls(self)                           # create each page and pass the App as parent
+            p.place(x=0, y=0, width=W, height=H)    # stack all pages on top of each other at (0,0)
             self._pages[name] = p
 
-        self.go("home")
+        self.go("home")  # start the app by showing the home screen
 
     def go(self, name):
         for p in self._pages.values():
-            p.lower()
+            p.lower()              # push every page to the bottom of the stacking order
         page = self._pages[name]
-        if hasattr(page, "on_show"):
+        if hasattr(page, "on_show"):   # some pages (e.g. AboutPage) need to reset state when shown
             page.on_show()
-        page.lift()
+        page.lift()                    # bring the target page to the top so it becomes visible
 
 
 # ── Base page ─────────────────────────────────────────────────────────────────
 class Page(tk.Frame):
     def __init__(self, app):
-        super().__init__(app, width=W, height=H, bg=SKY)
-        self._app = app
+        super().__init__(app, width=W, height=H, bg=SKY)  # full-size frame matching the window
+        self._app = app  # keep a reference to the App so any page can trigger navigation
 
-    def go(self, name):
+    def go(self, name):  # shortcut so subclasses can call self.go() instead of self._app.go()
         self._app.go(name)
 
     def _topbar(self, cv, back="home"):
         cbtn(cv, 30, 18, 180, 68, "BACK",
-             ("OPTIVagRound-Bold", 20), RED, RED_DK, lambda: self.go(back), r=18)
+             ("OPTIVagRound-Bold", 20), RED, RED_DK, lambda: self.go(back), r=18)  # BACK navigates to the previous page
         otxt(cv, W//2, 44, "ECETHON",
-             ("OPTIVagRound-Bold", 26), fill=GREEN, ol=NAVY, ow=2)
+             ("OPTIVagRound-Bold", 26), fill=GREEN, ol=NAVY, ow=2)  # centered app name label
         cbtn(cv, W-180, 18, W-30, 68, "HOME",
-             ("OPTIVagRound-Bold", 20), YELLOW, YEL_DK, lambda: self.go("home"), r=18)
+             ("OPTIVagRound-Bold", 20), YELLOW, YEL_DK, lambda: self.go("home"), r=18)  # HOME always goes to the landing screen
 
     @staticmethod
     def _purplebar(cv):
-        cv.create_rectangle(0, H-70, W, H, fill=PURPLE, outline="")
+        cv.create_rectangle(0, H-70, W, H, fill=PURPLE, outline="")  # draws the purple footer strip at the bottom of every page
 
 
 # ── Home page ─────────────────────────────────────────────────────────────────
@@ -174,13 +177,14 @@ class HomePage(Page):
 
         # Stage spotlight rays from top-center
         cx = W // 2
+        # each tuple is (horizontal offset from center, half-width at top) — rays spread outward like stage lights
         for ox, hw in [(0, 18), (110, 14), (-110, 14),
                        (225, 11), (-225, 11), (345, 9), (-345, 9)]:
             cv.create_polygon(
-                cx+ox-hw,    0,
-                cx+ox+hw,    0,
-                cx+ox+hw*14, H*0.85,
-                cx+ox-hw*14, H*0.85,
+                cx+ox-hw,    0,          # top-left corner of the ray
+                cx+ox+hw,    0,          # top-right corner of the ray
+                cx+ox+hw*14, H*0.85,    # bottom-right (widened by factor 14)
+                cx+ox-hw*14, H*0.85,    # bottom-left (widened by factor 14)
                 fill=RAY, outline="",
             )
 
@@ -202,13 +206,13 @@ class HomePage(Page):
 
     # ── Modals ────────────────────────────────────────────────────────────────
     def _modal(self, title, body):
-        w = tk.Toplevel(self)
+        w = tk.Toplevel(self)     # create a child popup window
         w.title(title)
         w.geometry("480x230")
         w.resizable(False, False)
         w.configure(bg=SKY)
-        w.transient(self._app)
-        w.grab_set()
+        w.transient(self._app)    # keep the popup attached to the main window
+        w.grab_set()              # block all interaction with other windows until this one is closed
         tk.Label(w, text=title, font=("OPTIVagRound-Bold", 26),
                  bg=SKY, fg=GREEN).pack(pady=(20, 6))
         tk.Label(w, text=body, font=("OPTIVagRound-Bold", 14),
@@ -218,10 +222,10 @@ class HomePage(Page):
                   cursor="hand2", command=w.destroy).pack(pady=18)
 
     def _about(self):
-        self.go("about")
+        self.go("about")    # navigate to the 5-slide About page
 
     def _creator(self):
-        self.go("creator")
+        self.go("creator")  # navigate to the Creator profile page
 
 
 # ── Creator page ────────────────────────────────────────────────────────────────
@@ -243,19 +247,20 @@ class CreatorPage(Page):
 
         # ── Full-screen image ─────────────────────────────────────────────────
         try:
-            self._img_ref = tk.PhotoImage(file="creator/Creator.png")
-            cv.create_image(0, 0, anchor="nw", image=self._img_ref)
+            self._img_ref = tk.PhotoImage(file="creator/Creator.png")  # load the PNG from the creator/ subfolder
+            cv.create_image(0, 0, anchor="nw", image=self._img_ref)    # draw it starting from the top-left corner
         except Exception:
+            # graceful fallback if the image file is missing
             cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
             cv.create_text(W//2, H//2, text="creator/Creator.png not found",
                            font=("OPTIVagRound-Bold", 24), fill=WHITE)
 
         # ── Invisible HOME hit-zone ───────────────────────────────────────────
         x1, y1, x2, y2 = self._BTN_HOME
-        zone = cv.create_rectangle(x1, y1, x2, y2, fill="", outline="")
-        cv.tag_bind(zone, "<Button-1>", lambda e: self.go("home"))
-        cv.tag_bind(zone, "<Enter>",    lambda e: cv.config(cursor="hand2"))
-        cv.tag_bind(zone, "<Leave>",    lambda e: cv.config(cursor=""))
+        zone = cv.create_rectangle(x1, y1, x2, y2, fill="", outline="")  # transparent clickable area over the image's HOME button
+        cv.tag_bind(zone, "<Button-1>", lambda e: self.go("home"))        # clicking navigates home
+        cv.tag_bind(zone, "<Enter>",    lambda e: cv.config(cursor="hand2"))  # pointer cursor on hover
+        cv.tag_bind(zone, "<Leave>",    lambda e: cv.config(cursor=""))        # restore default cursor on leave
 
 
 # ── About page (5-slide deck) ─────────────────────────────────────────────────
@@ -274,13 +279,13 @@ class AboutPage(Page):
 
     def on_show(self):
         """Called by App.go() — always start at slide 0."""
-        self._slide = 0
+        self._slide = 0   # reset to the first slide every time the user navigates to About
         self._render()
 
     # ── slide navigation ──────────────────────────────────────────────────────
     def _go(self, idx):
-        self._slide = idx
-        self._render()
+        self._slide = idx   # update the current slide index
+        self._render()      # redraw the entire canvas for the new slide
 
     # ── full redraw ───────────────────────────────────────────────────────────
     def _render(self):
@@ -302,13 +307,13 @@ class AboutPage(Page):
              ("OPTIVagRound-Bold", 20), YELLOW, YEL_DK,
              lambda: self.go("home"), r=18)
 
-        # NEXT (hidden on last slide)
+        # NEXT is hidden on the last slide so the user cannot go past slide 4
         if self._slide < 4:
             cbtn(cv, W-230, H-65, W-30, H-10, "NEXT",
                  ("OPTIVagRound-Bold", 22), GREEN, GRN_DK,
                  lambda: self._go(self._slide + 1), r=22)
 
-        # dispatch to slide renderer
+        # use the slide index to call the matching slide method (0→_s0, 1→_s1, etc.)
         [self._s0, self._s1, self._s2, self._s3, self._s4][self._slide]()
 
     # ── shared drawing helpers ────────────────────────────────────────────────
@@ -508,19 +513,19 @@ class TopicsPage(Page):
 
         card_w, gap = 235, 38
         total = len(self._TOPICS) * card_w + (len(self._TOPICS) - 1) * gap
-        sx = (W - total) // 2
-        y1, y2 = 225, 450
+        sx = (W - total) // 2   # starting x so all cards are centered horizontally
+        y1, y2 = 225, 450       # top and bottom y coordinates for every card
 
         for i, (label, dest, color, dark) in enumerate(self._TOPICS):
-            x1 = sx + i * (card_w + gap)
+            x1 = sx + i * (card_w + gap)  # left edge of this card
             x2 = x1 + card_w
-            rr(cv, x1+5, y1+5, x2+5, y2+5, r=24, fill=dark, outline="")
-            b = rr(cv, x1, y1, x2, y2, r=24, fill=color, outline="")
+            rr(cv, x1+5, y1+5, x2+5, y2+5, r=24, fill=dark, outline="")  # drop shadow
+            b = rr(cv, x1, y1, x2, y2, r=24, fill=color, outline="")      # card face
             t = cv.create_text((x1+x2)//2, (y1+y2)//2,
                                text=label, font=("OPTIVagRound-Bold", 22),
                                fill=WHITE, justify="center")
             for tag in (b, t):
-                cv.tag_bind(tag, "<Button-1>", lambda e, d=dest: self.go(d))
+                cv.tag_bind(tag, "<Button-1>", lambda e, d=dest: self.go(d))  # clicking card OR label navigates to the topic
 
 
 # ── Complex Numbers page ──────────────────────────────────────────────────────
@@ -563,7 +568,7 @@ class ComplexPage(Page):
                              insertbackground=NAVY,
                              justify="center")
         self.expr.place(x=x1+40, y=260, height=44, width=cw-80)
-        self.expr.bind("<Return>", lambda e: self._calc())
+        self.expr.bind("<Return>", lambda e: self._calc())  # pressing Enter triggers calculation without clicking the button
 
         # ── Calculate button ──────────────────────────────────────────────────
         cbtn(cv, cx-130, 345, cx+130, 400, "CALCULATE",
@@ -572,11 +577,11 @@ class ComplexPage(Page):
     # ── Calculation ───────────────────────────────────────────────────────────
     def _calc(self):
         raw = self.expr.get()
-        if not raw.strip():
+        if not raw.strip():  # do nothing if the input box is empty
             self._result_modal(error="⚠  Please enter an expression")
             return
         try:
-            res = _parse_num(raw)
+            res = _parse_num(raw)  # parse the string into a Python complex number
         except ZeroDivisionError:
             self._result_modal(error="⚠  Division by zero")
             return
@@ -586,11 +591,11 @@ class ComplexPage(Page):
                       "Examples: (3+2i)*(1-i)  |  1/2+sqrt(3)*i  |  2^4  |  pi+e*i")
             return
 
-        r, i  = res.real, res.imag
-        sign  = "+" if i >= 0 else "-"
-        r_str = f"{r:g}{sign}{abs(i):g}j"
-        mag   = abs(res)
-        phase = math.degrees(cmath.phase(res))
+        r, i  = res.real, res.imag           # split the result into real and imaginary parts
+        sign  = "+" if i >= 0 else "-"       # determine the sign character for display
+        r_str = f"{r:g}{sign}{abs(i):g}j"   # build a human-readable complex string e.g. "3+4j"
+        mag   = abs(res)                      # magnitude = distance from origin = √(r²+i²)
+        phase = math.degrees(cmath.phase(res))  # phase angle in degrees from the positive real axis
         self._result_modal(r_str=r_str, r=r, i=i, mag=mag, phase=phase)
 
     # ── Result modal ──────────────────────────────────────────────────────────
@@ -605,8 +610,8 @@ class ComplexPage(Page):
         m.transient(self._app)
         m.grab_set()
 
-        # Center over main window
-        m.update_idletasks()
+        # Center the popup over the main window by calculating the offset from the app's current position
+        m.update_idletasks()  # force Tkinter to compute the window's actual size before positioning
         mx = self._app.winfo_x() + (W - MW) // 2
         my = self._app.winfo_y() + (H - MH) // 2
         m.geometry(f"+{mx}+{my}")
@@ -629,22 +634,22 @@ class ComplexPage(Page):
             rr(cv, 30, 80, MW-30, MH-70, r=24, fill=CARD, outline="")
 
             rows = [
-                ("Result:",         f"({r_str})"),
-                ("Real part:",      f"{r}"),
-                ("Imaginary part:", f"{i}"),
-                ("Magnitude:",      f"{mag:.6f}"),
-                ("Phase:",          f"{phase:.2f}\u00b0"),
+                ("Result:",         f"({r_str})"),    # full complex number
+                ("Real part:",      f"{r}"),           # x component
+                ("Imaginary part:", f"{i}"),           # y component
+                ("Magnitude:",      f"{mag:.6f}"),     # |z| = √(x²+y²)
+                ("Phase:",          f"{phase:.2f}\u00b0"),  # angle in degrees
             ]
-            lx, vx = 55, 280
+            lx, vx = 55, 280  # x positions for the label column and value column
             for idx, (label, value) in enumerate(rows):
-                y = 118 + idx * 46
+                y = 118 + idx * 46  # each row is 46 pixels apart
                 cv.create_text(lx, y, anchor="w",
                                font=("OPTIVagRound-Bold", 17), fill=NAVY, text=label)
                 cv.create_text(vx, y, anchor="w",
                                font=("OPTIVagRound-Bold", 17), fill=NAVY, text=value)
                 if idx < len(rows) - 1:
                     cv.create_line(50, y+23, MW-50, y+23,
-                                   fill="#90C8E8", width=1)
+                                   fill="#90C8E8", width=1)  # thin divider line between rows
 
         # Close button
         cbtn(cv, MW//2-80, MH-58, MW//2+80, MH-12, "CLOSE",
@@ -653,8 +658,8 @@ class ComplexPage(Page):
 
 # ── Shared result-modal mixin ────────────────────────────────────────────────
 def _show_modal(app, title, rows, error=None, hdr_color=NAVY):
-    MW, MH = 580, 120 + (len(rows) * 46 if rows else 100) + 80
-    MH = max(MH, 300)
+    MW, MH = 580, 120 + (len(rows) * 46 if rows else 100) + 80  # height grows automatically with the number of result rows
+    MH = max(MH, 300)  # enforce a minimum height so the modal never looks too small
     m = tk.Toplevel()
     m.title(title)
     m.geometry(f"{MW}x{MH}")
@@ -734,7 +739,7 @@ class LinearPage(Page):
                                    font=("OPTIVagRound-Bold", 13),
                                    state="readonly", width=22)
         self.op_cb.place(x=148, y=142, height=36)
-        self.op_var.trace_add("write", lambda *_: self._build_grids())
+        self.op_var.trace_add("write", lambda *_: self._build_grids())  # rebuild grids automatically whenever the operation changes
 
         # A size spinboxes  (each spinbox widget ~68px wide at this font)
         cv.create_text(400, 160, anchor="w",
@@ -770,12 +775,13 @@ class LinearPage(Page):
              ("OPTIVagRound-Bold", 20), self._PURPLE, self._PRPDK, self._calc, r=26)
 
     def _spin(self, x, y, var):
+        # read-only spinbox so users can only increment/decrement (not type invalid values)
         sb = tk.Spinbox(self, from_=1, to=self._MAX, textvariable=var,
                         width=2, font=("OPTIVagRound-Bold", 14),
                         bg="#D6EEFA", fg=NAVY, relief="flat",
                         highlightthickness=1, highlightbackground=NAVY,
                         justify="center", state="readonly",
-                        command=self._build_grids)
+                        command=self._build_grids)  # rebuilds the matrix grids every time the dimension changes
         sb.place(x=x, y=y, height=34)
         return sb
 
@@ -791,17 +797,17 @@ class LinearPage(Page):
         # ── labels on canvas ──────────────────────────────────────────────────
         if self._op_lbl_id:
             for _id in self._op_lbl_id:
-                self.cv.delete(_id)
+                self.cv.delete(_id)  # remove old "Matrix A", "Matrix B", and operator labels before redrawing
         ids = []
-        rA = int(self.rA.get()); cA = int(self.cA.get())
-        rB = int(self.rB.get()); cB = int(self.cB.get())
-        gw_A = cA * (CW + P*2) + 20
-        gw_B = cB * (CW + P*2) + 20
-        A_LEFT  = 80
+        rA = int(self.rA.get()); cA = int(self.cA.get())  # current dimensions for Matrix A
+        rB = int(self.rB.get()); cB = int(self.cB.get())  # current dimensions for Matrix B
+        gw_A = cA * (CW + P*2) + 20  # pixel width of the Matrix A grid
+        gw_B = cB * (CW + P*2) + 20  # pixel width of the Matrix B grid
+        A_LEFT  = 80                                          # Matrix A always starts near the left edge
         B_RIGHT = W - 80
-        B_LEFT  = B_RIGHT - gw_B
-        B_LEFT  = max(B_LEFT, A_LEFT + gw_A + 120)  # at least 120px gap
-        op_x    = (A_LEFT + gw_A + B_LEFT) // 2
+        B_LEFT  = B_RIGHT - gw_B                             # Matrix B is right-aligned
+        B_LEFT  = max(B_LEFT, A_LEFT + gw_A + 120)           # ensure at least 120px gap between the two grids
+        op_x    = (A_LEFT + gw_A + B_LEFT) // 2              # operator symbol is centered between the two grids
 
         ids.append(self.cv.create_text(
             A_LEFT + 10, 204, anchor="w",
@@ -809,7 +815,7 @@ class LinearPage(Page):
         ids.append(self.cv.create_text(
             B_LEFT + 10, 204, anchor="w",
             font=("OPTIVagRound-Bold", 16), fill=NAVY, text="Matrix B"))
-        # operator symbol centred in the gap
+        # map the operation name to its mathematical symbol for display between the matrices
         op = self.op_var.get()
         sym = {"Addition (A+B)": "+", "Subtraction (A-B)": "−",
                "Multiplication (A×B)": "×", "Division (A×B⁻¹)": "÷"}.get(op, "?")
@@ -820,17 +826,17 @@ class LinearPage(Page):
         TOP = 218
 
         # ── Matrix A ──────────────────────────────────────────────────────────
-        self._grid_frame_A.destroy()
+        self._grid_frame_A.destroy()  # destroy the old frame so its entry cells are also removed
         self._grid_frame_A = tk.Frame(self, bg="#1B4F8A", padx=10, pady=10)
-        self._cellsA = []
+        self._cellsA = []  # reset the 2D list of Entry widgets for Matrix A
         for r in range(rA):
             row_e = []
             for c in range(cA):
                 e = tk.Entry(self._grid_frame_A, **ef)
-                e.insert(0, "0")
+                e.insert(0, "0")  # pre-fill every cell with 0 so the user only changes what they need
                 e.grid(row=r, column=c, padx=P, pady=P, ipadx=3, ipady=5)
                 row_e.append(e)
-            self._cellsA.append(row_e)
+            self._cellsA.append(row_e)  # store each row as a list inside the 2D list
         gh_A = rA * (CH + P*2) + 20
         self._grid_frame_A.place(x=A_LEFT, y=TOP)
 
@@ -852,29 +858,31 @@ class LinearPage(Page):
     # ── read grids → numpy (supports complex, fractions, exponents) ─────────────
     @staticmethod
     def _parse_cell(s):
-        s = s.strip() or "0"
-        return _parse_num(s)
+        s = s.strip() or "0"  # treat blank cells as zero
+        return _parse_num(s)   # reuse the shared parser so complex inputs like 3+4j work
 
     def _read_grid(self, cells):
+        # build a 2D NumPy array from all Entry widget values
         arr = np.array([[self._parse_cell(cells[r][c].get())
                          for c in range(len(cells[r]))]
                         for r in range(len(cells))], dtype=complex)
         if not np.any(arr.imag):
-            return arr.real
+            return arr.real  # return a real array if no imaginary parts exist (cleaner output)
         return arr
 
     # ── calculation ───────────────────────────────────────────────────────────
     def _calc(self):
         op = self.op_var.get()
         try:
-            A = self._read_grid(self._cellsA)
-            B = self._read_grid(self._cellsB)
+            A = self._read_grid(self._cellsA)  # convert Matrix A entries to a NumPy array
+            B = self._read_grid(self._cellsB)  # convert Matrix B entries to a NumPy array
         except Exception:
             _show_modal(self._app, "LINEAR ALGEBRA", [],
                         error="⚠  Invalid value in a cell", hdr_color=self._PRPDK)
             return
 
         def fmt(v):
+            # format a single matrix element: show as real if no imaginary part, else show as complex
             v = complex(v)
             if v.imag == 0:
                 return f"{v.real:.4g}"
@@ -883,21 +891,21 @@ class LinearPage(Page):
 
         try:
             if op == "Addition (A+B)":
-                C, title = A + B, "A + B"
+                C, title = A + B, "A + B"              # element-wise addition
             elif op == "Subtraction (A-B)":
-                C, title = A - B, "A − B"
+                C, title = A - B, "A − B"              # element-wise subtraction
             elif op == "Multiplication (A×B)":
-                C, title = A @ B, "A × B"
+                C, title = A @ B, "A × B"              # true matrix multiplication (dot product)
             elif op == "Division (A×B⁻¹)":
-                C, title = A @ np.linalg.inv(B), "A × B⁻¹"
+                C, title = A @ np.linalg.inv(B), "A × B⁻¹"  # A divided by B = A multiplied by the inverse of B
             else:
                 return
-            result_rows = [(f"Row {i+1}:", "  ".join(fmt(v) for v in r))
+            result_rows = [(f"Row {i+1}:", "  ".join(fmt(v) for v in r))  # format each row of the result matrix
                            for i, r in enumerate(C)]
             _show_modal(self._app, title, result_rows, hdr_color=self._PRPDK)
         except Exception as e:
             _show_modal(self._app, "LINEAR ALGEBRA", [],
-                        error=f"⚠  {e}", hdr_color=self._PRPDK)
+                        error=f"⚠  {e}", hdr_color=self._PRPDK)  # catches shape mismatch, singular matrix, etc.
 
 
 # ── Fourier Series page ───────────────────────────────────────────────────────
@@ -913,8 +921,8 @@ class FourierPage(Page):
         self.cv.place(x=0, y=0)
         self._pieces = []   # list of dicts: {frame, expr, x_from, x_to}
         self._draw_static()
-        self._add_piece("0",   "-pi", "0")
-        self._add_piece("x",   "0",   "pi")
+        self._add_piece("0",   "-pi", "0")   # default piece 1: f(x)=0 on [-π, 0]
+        self._add_piece("x",   "0",   "pi")  # default piece 2: f(x)=x on [0, π]
 
     # ── static chrome ─────────────────────────────────────────────────────────
     def _draw_static(self):
@@ -983,7 +991,7 @@ class FourierPage(Page):
     # ── piece row management ──────────────────────────────────────────────────
     def _add_piece(self, default_expr="0", x_from="0", x_to="1"):
         if len(self._pieces) >= self._MAX_PIECES:
-            return
+            return  # silently do nothing if the maximum number of pieces is already reached
         idx = len(self._pieces)
         ef = dict(font=("OPTIVagRound-Bold", 13), bg="white", fg=NAVY,
                   relief="flat", highlightthickness=2,
@@ -1015,13 +1023,13 @@ class FourierPage(Page):
             side="left", ipady=5)
 
         self._pieces.append({"frame": row, "expr": expr_var,
-                              "from": from_var, "to": to_var})
+                              "from": from_var, "to": to_var})  # store the StringVars so _calc() can read the values later
 
     def _remove_piece(self):
         if len(self._pieces) <= 1:
-            return
-        p = self._pieces.pop()
-        p["frame"].destroy()
+            return  # always keep at least one piece so there is something to compute
+        p = self._pieces.pop()    # remove the last piece from the list
+        p["frame"].destroy()      # destroy its widget row so it disappears from the UI
 
     # ── calculation ───────────────────────────────────────────────────────────
     def _calc(self):
@@ -1032,47 +1040,50 @@ class FourierPage(Page):
         except Exception:
             N = 5
 
-        x_sym = sp.Symbol("x")
-        pieces_data = []
+        x_sym = sp.Symbol("x")  # symbolic variable used in all SymPy expressions
+        pieces_data = []          # will hold (sympy_expr, x_start, x_end) for each piece
         x_min_all = None
         x_max_all = None
 
         for p in self._pieces:
-            raw = _normalize(p["expr"].get().strip())
+            raw = _normalize(p["expr"].get().strip())  # normalize the function expression
             try:
-                xa = float(sp.sympify(_normalize(p["from"].get().strip()), locals=_SAFE_LOCALS))
-                xb = float(sp.sympify(_normalize(p["to"].get().strip()),   locals=_SAFE_LOCALS))
-                f_expr = sp.sympify(raw, locals=_SAFE_LOCALS)
+                xa = float(sp.sympify(_normalize(p["from"].get().strip()), locals=_SAFE_LOCALS))  # evaluate start of interval
+                xb = float(sp.sympify(_normalize(p["to"].get().strip()),   locals=_SAFE_LOCALS))  # evaluate end of interval
+                f_expr = sp.sympify(raw, locals=_SAFE_LOCALS)  # parse expression into a SymPy object
             except Exception as e:
                 _show_modal(self._app, "FOURIER SERIES", [],
                             error=f"⚠  Parse error: {e}", hdr_color=self._ORGDK)
                 return
             pieces_data.append((f_expr, xa, xb))
-            if x_min_all is None or xa < x_min_all: x_min_all = xa
-            if x_max_all is None or xb > x_max_all: x_max_all = xb
+            if x_min_all is None or xa < x_min_all: x_min_all = xa  # track the overall minimum x
+            if x_max_all is None or xb > x_max_all: x_max_all = xb  # track the overall maximum x
 
         # Period
         period_raw = self.period_entry.get().strip()
         if period_raw:
             try:
-                T = float(sp.sympify(period_raw))
+                T = float(sp.sympify(period_raw))  # use the manually entered period
             except Exception:
                 _show_modal(self._app, "FOURIER SERIES", [],
                             error="⚠  Invalid period T", hdr_color=self._ORGDK)
                 return
         else:
-            T = x_max_all - x_min_all
+            T = x_max_all - x_min_all  # auto-detect period as the total span of all pieces
 
-        L = T / 2
+        L = T / 2  # half-period, used in the Fourier coefficient integrals
 
         try:
+            # a0 is the DC offset: (2/T) × integral of f(x) over one period
             a0 = sum(float(sp.integrate(f, (x_sym, xa, xb)))
                      for f, xa, xb in pieces_data) * (2 / T)
             an_list, bn_list = [], []
             for n in range(1, N + 1):
+                # aₙ: cosine coefficient — (2/T) × integral of f(x)·cos(nπx/L)
                 an = sum(float(sp.integrate(
                     f * sp.cos(n * sp.pi * x_sym / L), (x_sym, xa, xb)))
                     for f, xa, xb in pieces_data) * (2 / T)
+                # bₙ: sine coefficient — (2/T) × integral of f(x)·sin(nπx/L)
                 bn = sum(float(sp.integrate(
                     f * sp.sin(n * sp.pi * x_sym / L), (x_sym, xa, xb)))
                     for f, xa, xb in pieces_data) * (2 / T)
@@ -1083,14 +1094,14 @@ class FourierPage(Page):
                         error=f"⚠  Integration error: {e}", hdr_color=self._ORGDK)
             return
 
-        # Build formula string
+        # Build formula string — only include terms where the coefficient is non-negligible (> 1e-10)
         formula = f"f(x) ≈ {a0/2:.4g}"
         for n in range(1, N + 1):
             an, bn = an_list[n-1], bn_list[n-1]
-            if abs(an) > 1e-10:
+            if abs(an) > 1e-10:  # skip near-zero cosine terms to keep the formula clean
                 sign = "+" if an >= 0 else "−"
                 formula += f"  {sign}  {abs(an):.4g}·cos({n}πx/{L:.4g})"
-            if abs(bn) > 1e-10:
+            if abs(bn) > 1e-10:  # skip near-zero sine terms
                 sign = "+" if bn >= 0 else "−"
                 formula += f"  {sign}  {abs(bn):.4g}·sin({n}πx/{L:.4g})"
 
@@ -1101,15 +1112,16 @@ class FourierPage(Page):
     def _show_result(self, T, L, a0, an_list, bn_list, formula,
                      pieces_data, N, x_sym):
         def f_piecewise(xv):
+            # evaluate the original piecewise function at a single point xv
             for expr, xa, xb in pieces_data:
-                if xa - 1e-9 <= xv <= xb + 1e-9:
+                if xa - 1e-9 <= xv <= xb + 1e-9:  # small tolerance avoids boundary gaps
                     try:
                         return float(expr.subs(x_sym, xv))
                     except Exception:
                         return 0.0
-            # periodic extension
+            # if xv is outside all pieces, use the periodic extension to wrap it back into range
             x_min = pieces_data[0][1]
-            shifted = ((xv - x_min) % T) + x_min
+            shifted = ((xv - x_min) % T) + x_min  # shift xv into the first period
             for expr, xa, xb in pieces_data:
                 if xa - 1e-9 <= shifted <= xb + 1e-9:
                     try:
@@ -1119,10 +1131,11 @@ class FourierPage(Page):
             return 0.0
 
         def f_fourier(xv):
-            v = a0 / 2
+            # evaluate the Fourier series approximation at a single point xv
+            v = a0 / 2  # DC term
             for n, (an, bn) in enumerate(zip(an_list, bn_list), 1):
-                v += an * math.cos(n * math.pi * xv / L)
-                v += bn * math.sin(n * math.pi * xv / L)
+                v += an * math.cos(n * math.pi * xv / L)  # add the nth cosine term
+                v += bn * math.sin(n * math.pi * xv / L)  # add the nth sine term
             return v
 
         MW, MH = 1140, 700
@@ -1150,10 +1163,10 @@ class FourierPage(Page):
         x_min = pieces_data[0][1]
         x_max = pieces_data[-1][2]
         span  = x_max - x_min
-        x_p0  = x_min - span * 0.15
-        x_p1  = x_max + span * 0.15
-        STEPS = 700
-        xs = [x_p0 + i * (x_p1 - x_p0) / STEPS for i in range(STEPS + 1)]
+        x_p0  = x_min - span * 0.15  # extend the plot 15% beyond the left boundary
+        x_p1  = x_max + span * 0.15  # extend the plot 15% beyond the right boundary
+        STEPS = 700  # number of sample points — higher = smoother curve
+        xs = [x_p0 + i * (x_p1 - x_p0) / STEPS for i in range(STEPS + 1)]  # evenly spaced x values
 
         try:
             ys_o = [f_piecewise(v) for v in xs]
@@ -1162,15 +1175,15 @@ class FourierPage(Page):
             ys_o = ys_f = [0.0] * len(xs)
 
         y_lo = min(ys_o + ys_f); y_hi = max(ys_o + ys_f)
-        if abs(y_hi - y_lo) < 1e-10: y_lo -= 1; y_hi += 1
+        if abs(y_hi - y_lo) < 1e-10: y_lo -= 1; y_hi += 1  # prevent zero-height graph for flat functions
         pad = (y_hi - y_lo) * 0.12
-        y_lo -= pad; y_hi += pad
+        y_lo -= pad; y_hi += pad  # add vertical padding so curves don't touch the graph edges
 
-        MG = 46
-        pw = GW - 2*MG; ph = GH - 2*MG
+        MG = 46  # margin in pixels around the graph area for axis labels
+        pw = GW - 2*MG; ph = GH - 2*MG  # plot width and height inside the margins
 
-        def tx(v): return MG + (v - x_p0) / (x_p1 - x_p0) * pw
-        def ty(v): return MG + (1 - (v - y_lo) / (y_hi - y_lo)) * ph
+        def tx(v): return MG + (v - x_p0) / (x_p1 - x_p0) * pw   # map a math x-value to a canvas pixel x
+        def ty(v): return MG + (1 - (v - y_lo) / (y_hi - y_lo)) * ph  # map a math y-value to a canvas pixel y (inverted)
 
         # grid
         for i in range(5):
@@ -1190,11 +1203,11 @@ class FourierPage(Page):
         if x_p0 <= 0 <= x_p1:
             gcv.create_line(tx(0), MG, tx(0), MG+ph, fill="#4A7AB5", width=1)
 
-        # original (white dashed)
-        pts_o = [c for i in range(len(xs)) for c in (tx(xs[i]), ty(ys_o[i]))]
+        # original (white dashed) — the true piecewise function for reference
+        pts_o = [c for i in range(len(xs)) for c in (tx(xs[i]), ty(ys_o[i]))]  # flatten (x,y) pairs into a flat list for create_line
         gcv.create_line(*pts_o, fill="white", width=1, dash=(4,4), smooth=True)
 
-        # fourier (orange)
+        # fourier (orange) — the Fourier approximation with N harmonic terms
         pts_f = [c for i in range(len(xs)) for c in (tx(xs[i]), ty(ys_f[i]))]
         gcv.create_line(*pts_f, fill=self._ORG, width=2, smooth=True)
 
@@ -1226,9 +1239,9 @@ class FourierPage(Page):
                      bg="#1B4F8A", fg=WHITE, width=w,
                      relief="flat").grid(row=0, column=col, padx=2, pady=1, sticky="ew")
 
-        show_n = min(N, 8)
+        show_n = min(N, 8)  # cap the visible table at 8 rows to avoid overcrowding the UI
         for n in range(1, show_n + 1):
-            bg = CARD if n % 2 == 0 else "#D6EEFA"
+            bg = CARD if n % 2 == 0 else "#D6EEFA"  # alternate row colors for readability
             tk.Label(tbl_frame, text=str(n), font=("OPTIVagRound-Bold", 11),
                      bg=bg, fg=NAVY, width=4,
                      relief="flat").grid(row=n, column=0, padx=2, pady=1)
@@ -1300,9 +1313,9 @@ class LaplacePage(Page):
                              bg="#D6EEFA", fg=NAVY, relief="flat",
                              highlightthickness=2, highlightbackground=NAVY,
                              insertbackground=NAVY, justify="center")
-        self.expr.insert(0, "exp(-t)")
+        self.expr.insert(0, "exp(-t)")  # pre-fill with a common example so the user can run it immediately
         self.expr.place(x=x1+40, y=305, height=42, width=cw-80)
-        self.expr.bind("<Return>", lambda e: self._calc())
+        self.expr.bind("<Return>", lambda e: self._calc())  # Enter key triggers calculation
 
         cbtn(cv, cx-130, 375, cx+130, 428, "CALCULATE",
              ("OPTIVagRound-Bold", 20), self._PINK, self._PINKDK, self._calc, r=24)
@@ -1314,30 +1327,30 @@ class LaplacePage(Page):
                         error="⚠  Enter an expression", hdr_color=self._PINKDK)
             return
         try:
-            t, s = sp.Symbol("t", positive=True), sp.Symbol("s")
+            t, s = sp.Symbol("t", positive=True), sp.Symbol("s")  # t is the time variable, s is the complex frequency variable
             op   = self.op_var.get()
-            locs = {**_SAFE_LOCALS, 't': t, 's': s}
-            expr = sp.sympify(_normalize(raw), locals=locs)
+            locs = {**_SAFE_LOCALS, 't': t, 's': s}  # extend the safe whitelist with the two transform variables
+            expr = sp.sympify(_normalize(raw), locals=locs)  # parse the user expression into a SymPy expression
             if op == "Laplace Transform":
-                result = sp.laplace_transform(expr, t, s, noconds=True)
+                result = sp.laplace_transform(expr, t, s, noconds=True)  # compute F(s) from f(t); noconds=True suppresses convergence conditions
                 rows = [
-                    ("f(t):",  sp.pretty(expr,  use_unicode=True)),
-                    ("F(s):",  sp.pretty(result, use_unicode=True)),
-                    ("F(s) simplified:", str(sp.simplify(result))),
+                    ("f(t):",  sp.pretty(expr,  use_unicode=True)),   # original time-domain expression
+                    ("F(s):",  sp.pretty(result, use_unicode=True)),   # Laplace result in s-domain
+                    ("F(s) simplified:", str(sp.simplify(result))),    # algebraically simplified form
                 ]
             else:
-                result = sp.inverse_laplace_transform(expr, s, t, noconds=True)
+                result = sp.inverse_laplace_transform(expr, s, t, noconds=True)  # compute f(t) from F(s)
                 rows = [
-                    ("F(s):",  sp.pretty(expr,   use_unicode=True)),
-                    ("f(t):",  sp.pretty(result,  use_unicode=True)),
-                    ("f(t) simplified:", str(sp.simplify(result))),
+                    ("F(s):",  sp.pretty(expr,   use_unicode=True)),   # original s-domain expression
+                    ("f(t):",  sp.pretty(result,  use_unicode=True)),   # inverse Laplace result in time-domain
+                    ("f(t) simplified:", str(sp.simplify(result))),     # algebraically simplified form
                 ]
             _show_modal(self._app, op.upper(), rows, hdr_color=self._PINKDK)
         except Exception as e:
             _show_modal(self._app, "LAPLACE", [],
-                        error=f"⚠  {e}", hdr_color=self._PINKDK)
+                        error=f"⚠  {e}", hdr_color=self._PINKDK)  # catches unsupported transforms or parse errors
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    App().mainloop()
+if __name__ == "__main__":  # only run when this file is executed directly (not when imported)
+    App().mainloop()         # create the App window and start the Tkinter event loop
