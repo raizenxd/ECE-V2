@@ -31,12 +31,13 @@ Click **START** to begin.
 
 ## Selecting a Topic
 
-You will see four colored cards. Click any one to open its calculator.
+You will see five colored cards. Click any one to open its calculator.
 
 | Card | Color |
 |---|---|
 | Complex Numbers | Green |
 | Linear Algebra | Purple |
+| System of Linear Equation | Violet |
 | Fourier Series | Orange |
 | Laplace Transform | Pink |
 
@@ -202,7 +203,51 @@ Row 2:   0      0.5
 
 ---
 
-## 3. Fourier Series
+## 3. System of Linear Equation
+
+### How to Use
+
+1. Click **System of Linear Equation** from the topic screen
+2. Enter one equation per line (for example: `3x + y = 9`)
+3. Optionally enter variable names in the variables box (example: `x, y`)
+4. Click **CALCULATE**
+
+### Simple Example
+
+Enter:
+
+```text
+3x + y = 9
+x + 2y = 8
+```
+
+**Expected Output:**
+
+| Field | Value |
+|---|---|
+| Variables | `x, y` |
+| Solution vector | `[2. 3.]` |
+| x | `2` |
+| y | `3` |
+
+### Notes
+
+- You can use additional variables like `x, y, z, a, b, c, ...`
+- Implicit multiplication is supported here, so `3x` is valid
+- If variable box is blank, the app auto-detects variables from equations
+
+### Error Messages
+
+| Message | Cause | Fix |
+|---|---|---|
+| Enter at least one equation | No equation lines were entered | Add one or more equations |
+| Parse error | Invalid equation format | Check operators and equation syntax |
+| Invalid variable name(s) | Variable list has invalid names | Use names like `x`, `y1`, `z_var` |
+| No solution | Inconsistent system | Check coefficients and constants |
+
+---
+
+## 4. Fourier Series
 
 ### How to Use
 
@@ -213,7 +258,7 @@ Row 2:   0      0.5
    - The third column is the end of the interval
 3. Click **+ ADD PIECE** to add more pieces, **REMOVE LAST** to remove one
 4. Set **Harmonics N** — how many terms to include (start with `3` or `5`)
-5. Leave **Period T** blank to auto-detect, or type a value
+5. Limits are auto-detected from your piece intervals
 6. Click **CALCULATE**
 
 ### Simple Example — Constant Function
@@ -224,14 +269,12 @@ Use one piece only. Clear the second default row.
 |---|---|---|---|
 | 1 | `1` | `0` | `2` |
 
-Set **N = 3**, leave Period blank.
+Set **N = 3**.
 
 **Expected Output (approximate):**
 
 | Field | Value |
 |---|---|
-| Period T | `2` |
-| L = T/2 | `1` |
 | a₀ | `2.0` |
 | a₁ | `≈ 0` |
 | b₁ | `≈ 0` |
@@ -246,13 +289,12 @@ Set **N = 3**, leave Period blank.
 | 1 | `0` | `-1` | `0` |
 | 2 | `1` | `0` | `1` |
 
-Set **N = 5**, leave Period blank (T = 2 auto-detected).
+Set **N = 5**.
 
 **Expected Output:**
 
 | Field | Value |
 |---|---|
-| Period T | `2.0` |
 | a₀ | `1.0` |
 | a₀/2 | `0.5` |
 | a₁ | `≈ 0` |
@@ -277,12 +319,11 @@ Set **N = 5**, leave Period blank (T = 2 auto-detected).
 | Message | Cause | Fix |
 |---|---|---|
 | Parse error | Invalid expression in a piece | Use only `x`, numbers, `+`, `-`, `*`, `/`, `**` |
-| Invalid period T | Non-numeric value in Period field | Type a plain number or leave blank |
 | Integration error | SymPy could not integrate | Simplify the expression |
 
 ---
 
-## 4. Laplace Transform
+## 5. Laplace Transform
 
 ### How to Use
 
@@ -370,7 +411,8 @@ Type: `1/(s+3)`
 ## Quick Reference — Input Rules
 
 - Use `i` or `j` or `I` for the imaginary unit (all are the same)
-- Use `*` for multiplication: `3*x`, not `3x`
+- Use `*` for multiplication in most pages: `3*x`, not `3x`
+- In **System of Linear Equation**, implicit multiplication is allowed (`3x` is valid)
 - Use `**` or `^` for powers: `x**2` or `x^2`
 - Use `pi` for π and `e` for Euler's number
 - Parentheses `( )` are supported and recommended for clarity

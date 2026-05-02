@@ -1,6 +1,6 @@
 # ECETHON — Accepted Input Formats
 
-All input fields across every page (Complex Numbers, Linear Algebra, Fourier Series, Laplace Transform) use the same shared parser. The following formats are supported.
+All input fields across every page (Complex Numbers, Linear Algebra, System of Linear Equation, Fourier Series, Laplace Transform) use the shared parsing rules below. The following formats are supported.
 
 ---
 
@@ -92,10 +92,30 @@ All input fields across every page (Complex Numbers, Linear Algebra, Fourier Ser
 
 ---
 
+## System of Linear Equation Inputs
+
+Use this format in the **System of Linear Equation** page:
+
+| Format | Examples |
+|--------|----------|
+| One equation per line | `3x + y = 9` |
+| Multiple equations | `3x + y = 9` and `x + 2y = 8` |
+| Optional variable list | `x, y` or `x, y, z, a, b, c` |
+| Implicit multiplication | `3x`, `2y`, `5ab` |
+| Fractions/decimals in equations | `0.5x + y = 2`, `(1/3)x - z = 7` |
+
+Notes:
+- `=` is used to separate left-hand side and right-hand side of each equation.
+- If the variable list is blank, variables are auto-detected from the equations.
+- Variable names should follow standard identifier rules (example: `x`, `y1`, `z_var`).
+
+---
+
 ## Page-Specific Variables
 
 | Page | Variable | Meaning |
 |------|----------|---------|
+| System of Linear Equation | `x`, `y`, `z`, `a`, `b`, `c`, ... | Unknowns to solve for |
 | Fourier Series | `x` | Independent variable in f(x) expressions |
 | Laplace Transform | `t` | Time-domain variable |
 | Laplace Inverse | `s` | Frequency-domain variable |
@@ -113,18 +133,9 @@ sin(pi/4) + cos(pi/4)*i
 log(e^3)
 abs(3 + 4i)
 (2/3) / (1 + i)
+3x + y = 9
+x + 2y = 8
 ```
-
----
-
-## Notes
-
-- Angles in trigonometric functions are in **radians**. Use `pi` for π.
-- Fractions like `1/2` are evaluated exactly (e.g. `1/2 + 1/3` = `5/6`).
-- Spaces are allowed anywhere in expressions.
-- Both `i` and `j` are treated as the imaginary unit.
-
-
 
 ---
 
