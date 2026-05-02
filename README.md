@@ -1,6 +1,6 @@
 # ECETHON — Documentation Guide
 
-ECETHON is a Python-based interactive computational tool for Advanced Engineering Mathematics. It provides a graphical desktop application built with **Tkinter** that allows students to solve problems in four key topics: **Complex Numbers**, **Linear Algebra**, **Fourier Series**, and **Laplace Transform**.
+ECETHON is a Python-based interactive computational tool for Advanced Engineering Mathematics. It provides a graphical desktop application built with **Tkinter** that allows students to solve problems in five key topics: **Complex Numbers**, **Linear Algebra**, **System of Linear Equation**, **Fourier Series**, and **Laplace Transform**.
 
 ---
 
@@ -20,11 +20,12 @@ ECETHON is a Python-based interactive computational tool for Advanced Engineerin
 12. [CreatorPage](#creatorpage)
 13. [ComplexPage — Complex Numbers](#complexpage--complex-numbers)
 14. [LinearPage — Linear Algebra](#linearpage--linear-algebra)
-15. [FourierPage — Fourier Series](#fourierpage--fourier-series)
-16. [LaplacePage — Laplace Transform](#laplacepage--laplace-transform)
-17. [Shared Modal Helper](#shared-modal-helper)
-18. [Navigation Flow](#navigation-flow)
-19. [Accepted Input Formats](#accepted-input-formats)
+15. [LinearEquationPage — System of Linear Equation](#linearequationpage--system-of-linear-equation)
+16. [FourierPage — Fourier Series](#fourierpage--fourier-series)
+17. [LaplacePage — Laplace Transform](#laplacepage--laplace-transform)
+18. [Shared Modal Helper](#shared-modal-helper)
+19. [Navigation Flow](#navigation-flow)
+20. [Accepted Input Formats](#accepted-input-formats)
 
 ---
 
@@ -45,7 +46,9 @@ Make sure all dependencies are installed first (see below). The app opens a fixe
 | `tkinter` | GUI framework — windows, canvases, buttons, entries |
 | `tkinter.ttk` | Styled widgets (Combobox) |
 | `sympy` | Symbolic mathematics — integration, Laplace, simplification |
+| `sympy.parsing` | Expression parsing with implicit multiplication for equation solver |
 | `numpy` | Numerical matrix operations (Linear Algebra module) |
+| `matplotlib` | Graph plotting for Fourier results |
 | `cmath` | Complex number math (phase, polar) |
 | `math` | Standard math functions (degrees, cos, sin) |
 | `re` | Regular expressions for input normalization |
@@ -53,7 +56,7 @@ Make sure all dependencies are installed first (see below). The app opens a fixe
 Install with:
 
 ```bash
-pip install sympy numpy
+pip install sympy numpy matplotlib
 ```
 
 ---
@@ -83,6 +86,7 @@ ECETHON.py
 │
 ├── ComplexPage           ← Complex Numbers calculator
 ├── LinearPage            ← Linear Algebra matrix calculator
+├── LinearEquationPage    ← System of Linear Equation solver
 ├── FourierPage           ← Fourier Series calculator
 └── LaplacePage           ← Laplace Transform calculator
 ```
@@ -271,7 +275,7 @@ class App(tk.Tk):
 
 ### `App.__init__(self)`
 
-Creates the window, sets the title to `"ECETHON"`, fixes the size to `1280 × 720`, and instantiates **all eight pages**:
+Creates the window, sets the title to `"ECETHON"`, fixes the size to `1280 × 720`, and instantiates **all nine pages**:
 
 | Key | Page Class |
 |---|---|
@@ -281,6 +285,7 @@ Creates the window, sets the title to `"ECETHON"`, fixes the size to `1280 × 72
 | `"creator"` | `CreatorPage` |
 | `"complex"` | `ComplexPage` |
 | `"linear"` | `LinearPage` |
+| `"lineareq"` | `LinearEquationPage` |
 | `"fourier"` | `FourierPage` |
 | `"laplace"` | `LaplacePage` |
 
@@ -406,18 +411,19 @@ Calls `self.go("creator")` to navigate to the Creator page.
 class TopicsPage(Page):
 ```
 
-**Purpose:** Displays the **four topic selection cards**. The user clicks a card to enter the corresponding calculator.
+**Purpose:** Displays the **five topic selection cards**. The user clicks a card to enter the corresponding calculator.
 
 ---
 
 ### `TopicsPage._TOPICS`
 
-Class-level list of tuples defining the four topic cards:
+Class-level list of tuples defining the five topic cards:
 
 ```python
 _TOPICS = [
     ("Complex\nNumbers",   "complex",  GREEN,     GRN_DK),
     ("Linear\nAlgebra",    "linear",   "#8B5CF6", "#5B2CC0"),
+   ("Linear\nEquation",   "lineareq", "#7C3AED", "#5B21B6"),
     ("Fourier\nSeries",    "fourier",  "#F97316", "#C05010"),
     ("Laplace\nTransform", "laplace",  "#EC4899", "#A01060"),
 ]
@@ -727,6 +733,33 @@ Changing the operation dropdown automatically triggers `_build_grids()` via `tra
 
 ---
 
+## LinearEquationPage — System of Linear Equation
+
+```python
+class LinearEquationPage(LinearPage):
+```
+
+**Purpose:** Provides a dedicated equation-solving page for systems like:
+
+```text
+3x + y = 9
+x + 2y = 8
+```
+
+**UI behavior on this page:**
+- Title is `SYSTEM OF LINEAR EQUATION`
+- Matrix controls are hidden (no operation dropdown, rows/cols, or SET button)
+- Shows equation input area (one equation per line)
+- Shows optional variable list input (`x, y, z, ...`)
+- Uses the shared calculate flow and displays a solution vector plus per-variable values
+
+**Solver notes:**
+- Supports implicit multiplication in equations (`3x` is valid)
+- Uses symbolic linear solving (`sympy.linear_eq_to_matrix` + `sympy.linsolve`)
+- Can auto-detect variables if the variable list is left blank
+
+---
+
 ## FourierPage — Fourier Series
 
 ```python
@@ -748,7 +781,7 @@ class FourierPage(Page):
 - A container frame (`self._piece_container`) where piece rows are placed
 - **+ ADD PIECE** and **REMOVE LAST** buttons
 - **Harmonics N** spinbox (1–20, default 5) — controls how many Fourier terms to compute
-- **Period T** entry (optional; if blank, auto-calculated from the piece ranges)
+- Piece limits are used to auto-detect interval bounds for integration
 - A usage tip
 - CALCULATE button
 
@@ -789,20 +822,18 @@ The piece data is appended to `self._pieces` as a dictionary: `{frame, expr, fro
 **Steps:**
 1. Reads `N` (number of harmonics) from the spinbox
 2. Parses each piece: normalizes expressions, evaluates `x_from`/`x_to` numerically, and calls `sp.sympify()` on the function expression
-3. Determines the period `T`:
-   - If the Period field is filled, uses that value
-   - Otherwise, `T = x_max - x_min` (auto-detected from piece ranges)
-4. Computes half-period `L = T / 2`
+3. Auto-detects lower/upper integration bounds from the first/last piece intervals
+4. Computes `L = (b - a)/2` symbolically
 5. Integrates to compute:
-   - `a₀ = (2/T) × Σ ∫ f(x) dx` over each piece
-   - `aₙ = (2/T) × Σ ∫ f(x)·cos(nπx/L) dx` for n = 1..N
-   - `bₙ = (2/T) × Σ ∫ f(x)·sin(nπx/L) dx` for n = 1..N
+   - `a₀ = (1/(2L)) × ∫ f(x) dx` over `[a, b]`
+   - `aₙ = (1/L) × ∫ f(x)·cos(nπx/L) dx` for n = 1..N
+   - `bₙ = (1/L) × ∫ f(x)·sin(nπx/L) dx` for n = 1..N
 6. Builds a readable formula string showing non-negligible terms (> 1e-10)
 7. Calls `_show_result()` with all computed data
 
 ---
 
-### `FourierPage._show_result(self, T, L, a0, an_list, bn_list, formula, pieces_data, N, x_sym)`
+### `FourierPage._show_result(self, f_expr, a_sym, b_sym, L_sym, N, a0_sym, an_sym, bn_sym, series, x_sym)`
 
 **Purpose:** Opens a large **1140 × 700 result modal** window containing:
 
@@ -812,9 +843,8 @@ The piece data is appended to `self._pieces` as a dictionary: `{frame, expr, fro
    - Fourier approximation with N terms — orange solid line
    - Grid lines, axis labels, and a legend
 3. **Info panel** with:
-   - Period T, L = T/2, a₀, a₀/2
-   - Coefficient table showing n, aₙ, bₙ for up to 8 terms (indicates more if N > 8)
-   - Full formula string
+   - Symbolic coefficients: `a₀`, `aₙ`, `bₙ`
+   - Final simplified Fourier series expression
 4. **CLOSE button**
 
 **Graph functions defined internally:**
@@ -893,6 +923,7 @@ HomePage
   ├── START ──────────────────────────────► TopicsPage
   │                                             ├── Complex Numbers ─► ComplexPage
   │                                             ├── Linear Algebra ──► LinearPage
+   │                                             ├── Linear Equation ─► LinearEquationPage
   │                                             ├── Fourier Series ──► FourierPage
   │                                             └── Laplace Transform ► LaplacePage
   ├── ABOUT ─────────────────────────────► AboutPage (5 slides)
@@ -919,5 +950,6 @@ All calculator pages use the shared `_parse_num()` / `_normalize()` pipeline. Th
 | Constants | `pi`, `e` | SymPy symbolic |
 | Functions | `sqrt(2)`, `sin(pi/4)`, `exp(-1)` | See `_SAFE_LOCALS` |
 | Complex expressions | `(1+2i)*(3-i)`, `sqrt(2)+pi*i` | Full arithmetic |
+| Linear equations | `3x + y = 9` | Supported in System of Linear Equation page |
 | Implicit multiply | `2pi`, `3I` | Converted to `2*pi`, `3*I` |
 | Unicode operators | `3×2`, `6÷3` | Converted to `*`, `/` |
