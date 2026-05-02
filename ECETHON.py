@@ -5,10 +5,17 @@ import math                   # standard math: degrees conversion, cos, sin
 import re as _re              # regular expressions used to clean up user input strings
 import numpy as np            # numerical matrix operations for Linear Algebra
 import sympy as sp            # symbolic math engine for integration, Laplace, simplification
+from sympy.parsing.sympy_parser import (
+    parse_expr,
+    standard_transformations,
+    implicit_multiplication_application,
+)
 import matplotlib
 matplotlib.use("TkAgg")       # must be set before pyplot is imported
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+_PARSE_TRANSFORMS = standard_transformations + (implicit_multiplication_application,)
 
 # ── Shared input parser (used by all pages) ───────────────────────────────────
 # Only these names are recognized when evaluating user-typed expressions — nothing else can be executed
@@ -128,6 +135,7 @@ class App(tk.Tk):
             ("creator", CreatorPage),
             ("complex", ComplexPage),
             ("linear",  LinearPage),
+            ("lineareq", LinearEquationPage),
             ("fourier", FourierPage),
             ("laplace", LaplacePage),
         ]:
@@ -497,6 +505,7 @@ class TopicsPage(Page):
     _TOPICS = [
         ("Complex\nNumbers",   "complex",  GREEN,     GRN_DK),
         ("Linear\nAlgebra",    "linear",   "#8B5CF6", "#5B2CC0"),
+        ("Linear\nEquation",   "lineareq", "#7C3AED", "#5B21B6"),
         ("Fourier\nSeries",    "fourier",  "#F97316", "#C05010"),
         ("Laplace\nTransform", "laplace",  "#EC4899", "#A01060"),
     ]
@@ -515,7 +524,9 @@ class TopicsPage(Page):
         otxt(cv, W//2, 148, "SELECT A TOPIC",
              ("OPTIVagRound-Bold", 44), fill=WHITE, ol=NAVY, ow=3)
 
-        card_w, gap = 235, 38
+        # Keep cards fitting in one row even when more topics are added.
+        gap = 20
+        card_w = min(235, (W - 120 - gap * (len(self._TOPICS) - 1)) // len(self._TOPICS))
         total = len(self._TOPICS) * card_w + (len(self._TOPICS) - 1) * gap
         sx = (W - total) // 2   # starting x so all cards are centered horizontally
         y1, y2 = 225, 450       # top and bottom y coordinates for every card
@@ -526,7 +537,7 @@ class TopicsPage(Page):
             rr(cv, x1+5, y1+5, x2+5, y2+5, r=24, fill=dark, outline="")  # drop shadow
             b = rr(cv, x1, y1, x2, y2, r=24, fill=color, outline="")      # card face
             t = cv.create_text((x1+x2)//2, (y1+y2)//2,
-                               text=label, font=("OPTIVagRound-Bold", 22),
+                               text=label, font=("OPTIVagRound-Bold", 20),
                                fill=WHITE, justify="center")
             for tag in (b, t):
                 cv.tag_bind(tag, "<Button-1>", lambda e, d=dest: self.go(d))  # clicking card OR label navigates to the topic
@@ -701,13 +712,16 @@ def _show_modal(app, title, rows, error=None, hdr_color=NAVY):
 class LinearPage(Page):
     _PURPLE = "#8B5CF6"
     _PRPDK  = "#5B2CC0"
+    _EQ_OP  = "Linear Equations (solve variables)"
     _MAX    = 5
     _CELL_W = 88
     _CELL_H = 44
     _PAD    = 5
 
-    def __init__(self, app):
+    def __init__(self, app, equation_only=False, page_title="LINEAR ALGEBRA"):
         super().__init__(app)
+        self._equation_only = equation_only
+        self._page_title = page_title
         self.cv = tk.Canvas(self, width=W, height=H,
                             bd=0, highlightthickness=0, bg=SKY)
         self.cv.place(x=0, y=0)
@@ -715,8 +729,12 @@ class LinearPage(Page):
         self._cellsB: list[list[tk.Entry]] = []
         self._grid_frame_A = tk.Frame(self, bg="#3A6FA8")
         self._grid_frame_B = tk.Frame(self, bg="#3A6FA8")
+        self._eq_frame = tk.Frame(self, bg="#1B4F8A")
+        self._eq_vars = None
+        self._eq_text = None
         self._op_lbl_id = None
         self._draw_static()
+        self._build_equation_panel()
         self._build_grids()
 
     # ── static chrome ─────────────────────────────────────────────────────────
@@ -727,8 +745,18 @@ class LinearPage(Page):
         self._topbar(cv, "topics")
 
         # title
-        otxt(cv, W//2, 105, "LINEAR ALGEBRA",
+        otxt(cv, W//2, 105, self._page_title,
              ("OPTIVagRound-Bold", 46), fill=WHITE, ol=NAVY, ow=4)
+
+        if self._equation_only:
+            self.op_var = tk.StringVar(value=self._EQ_OP)
+            self._hint_id = cv.create_text(
+                W//2, 706, font=("OPTIVagRound-Bold", 11),
+                fill=WHITE, text="Example: 3x + y = 9 | x + 2y = 8   (supports x, y, z, a, b, c, ...)"
+            )
+            cbtn(cv, W//2-140, 636, W//2+140, 686, "CALCULATE",
+                 ("OPTIVagRound-Bold", 20), self._PURPLE, self._PRPDK, self._calc, r=26)
+            return
 
         # ── control bar card ──────────────────────────────────────────────────
         rr(cv, 30, 128, W-30, 192, r=20, fill="#1B4F8A", outline="")
@@ -737,7 +765,7 @@ class LinearPage(Page):
         cv.create_text(52, 160, anchor="w",
                        font=("OPTIVagRound-Bold", 13), fill=WHITE, text="Operation:")
         ops = ["Addition (A+B)", "Subtraction (A-B)",
-               "Multiplication (A×B)", "Division (A×B⁻¹)"]
+             "Multiplication (A×B)", "Division (A×B⁻¹)", self._EQ_OP]
         self.op_var = tk.StringVar(value=ops[0])
         self.op_cb  = ttk.Combobox(self, textvariable=self.op_var, values=ops,
                                    font=("OPTIVagRound-Bold", 13),
@@ -771,8 +799,10 @@ class LinearPage(Page):
              self._build_grids, r=14)
 
         # hint
-        cv.create_text(W//2, 706, font=("OPTIVagRound-Bold", 11),
-                       fill=WHITE, text="Supports complex numbers  e.g.  3+4j  or  2-1j")
+        self._hint_id = cv.create_text(
+            W//2, 706, font=("OPTIVagRound-Bold", 11),
+            fill=WHITE, text="Supports complex numbers  e.g.  3+4j  or  2-1j"
+        )
 
         # CALCULATE button (fixed, always on top)
         cbtn(cv, W//2-140, 636, W//2+140, 686, "CALCULATE",
@@ -789,8 +819,70 @@ class LinearPage(Page):
         sb.place(x=x, y=y, height=34)
         return sb
 
+    def _build_equation_panel(self):
+        # Dedicated panel for solving systems like: 3x + y = 9, x + 2y = 8
+        self._eq_frame = tk.Frame(self, bg="#1B4F8A", padx=14, pady=12)
+        tk.Label(self._eq_frame, text="Enter one equation per line:",
+                 font=("OPTIVagRound-Bold", 13), bg="#1B4F8A",
+                 fg=WHITE).pack(anchor="w")
+
+        vars_row = tk.Frame(self._eq_frame, bg="#1B4F8A")
+        vars_row.pack(fill="x", pady=(8, 8))
+        tk.Label(vars_row, text="Variables (optional, comma-separated):",
+                 font=("OPTIVagRound-Bold", 12), bg="#1B4F8A",
+                 fg=WHITE).pack(side="left")
+
+        self._eq_vars = tk.Entry(vars_row, font=("OPTIVagRound-Bold", 12),
+                                 bg="#D6EEFA", fg=NAVY, relief="flat",
+                                 highlightthickness=2,
+                                 highlightbackground=self._PURPLE,
+                                 insertbackground=NAVY, justify="left")
+        self._eq_vars.pack(side="left", fill="x", expand=True, padx=(10, 0), ipady=4)
+        self._eq_vars.insert(0, "x, y")
+
+        self._eq_text = tk.Text(self._eq_frame, font=("Consolas", 13),
+                                bg="white", fg=NAVY, relief="flat",
+                                highlightthickness=2,
+                                highlightbackground=self._PURPLE,
+                                insertbackground=NAVY)
+        self._eq_text.pack(fill="both", expand=True)
+        self._eq_text.insert("1.0", "3x + y = 9\nx + 2y = 8")
+
     # ── grid builder ──────────────────────────────────────────────────────────
     def _build_grids(self, *_):
+        if self._equation_only:
+            self._grid_frame_A.place_forget()
+            self._grid_frame_B.place_forget()
+            if self._op_lbl_id:
+                for _id in self._op_lbl_id:
+                    self.cv.delete(_id)
+                self._op_lbl_id = None
+            self._eq_frame.place(x=80, y=220, width=W-160, height=390)
+            self.cv.itemconfigure(
+                self._hint_id,
+                text="Example: 3x + y = 9 | x + 2y = 8   (supports x, y, z, a, b, c, ...)"
+            )
+            return
+
+        op = self.op_var.get()
+        if op == self._EQ_OP:
+            self._grid_frame_A.place_forget()
+            self._grid_frame_B.place_forget()
+            if self._op_lbl_id:
+                for _id in self._op_lbl_id:
+                    self.cv.delete(_id)
+                self._op_lbl_id = None
+            self._eq_frame.place(x=80, y=220, width=W-160, height=390)
+            self.cv.itemconfigure(
+                self._hint_id,
+                text="Example: 3x + y = 9 | x + 2y = 8   (supports x, y, z, a, b, c, ...)"
+            )
+            return
+
+        self._eq_frame.place_forget()
+        self.cv.itemconfigure(self._hint_id,
+                              text="Supports complex numbers  e.g.  3+4j  or  2-1j")
+
         CW, CH, P = self._CELL_W, self._CELL_H, self._PAD
 
         ef = dict(font=("OPTIVagRound-Bold", 13), bg="white", fg=NAVY,
@@ -820,7 +912,6 @@ class LinearPage(Page):
             B_LEFT + 10, 204, anchor="w",
             font=("OPTIVagRound-Bold", 16), fill=NAVY, text="Matrix B"))
         # map the operation name to its mathematical symbol for display between the matrices
-        op = self.op_var.get()
         sym = {"Addition (A+B)": "+", "Subtraction (A-B)": "−",
                "Multiplication (A×B)": "×", "Division (A×B⁻¹)": "÷"}.get(op, "?")
         ids.append(self.cv.create_text(
@@ -876,7 +967,15 @@ class LinearPage(Page):
 
     # ── calculation ───────────────────────────────────────────────────────────
     def _calc(self):
+        if self._equation_only:
+            self._calc_linear_equations()
+            return
+
         op = self.op_var.get()
+        if op == self._EQ_OP:
+            self._calc_linear_equations()
+            return
+
         try:
             A = self._read_grid(self._cellsA)  # convert Matrix A entries to a NumPy array
             B = self._read_grid(self._cellsB)  # convert Matrix B entries to a NumPy array
@@ -910,6 +1009,105 @@ class LinearPage(Page):
         except Exception as e:
             _show_modal(self._app, "LINEAR ALGEBRA", [],
                         error=f"⚠  {e}", hdr_color=self._PRPDK)  # catches shape mismatch, singular matrix, etc.
+
+    @staticmethod
+    def _parse_linear_expr(raw, locs):
+        return parse_expr(
+            _normalize(raw),
+            local_dict=locs,
+            transformations=_PARSE_TRANSFORMS,
+            evaluate=True,
+        )
+
+    def _calc_linear_equations(self):
+        lines = [ln.strip() for ln in self._eq_text.get("1.0", "end").splitlines() if ln.strip()]
+        if not lines:
+            _show_modal(self._app, "LINEAR EQUATIONS", [],
+                        error="⚠  Enter at least one equation", hdr_color=self._PRPDK)
+            return
+
+        locs = {**_SAFE_LOCALS}
+        raw_vars = self._eq_vars.get().strip()
+        var_names = [name.strip() for name in raw_vars.replace(";", ",").split(",") if name.strip()]
+
+        if var_names:
+            bad = [name for name in var_names if not _re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)]
+            if bad:
+                _show_modal(self._app, "LINEAR EQUATIONS", [],
+                            error=f"⚠  Invalid variable name(s): {', '.join(bad)}",
+                            hdr_color=self._PRPDK)
+                return
+            for name in var_names:
+                locs[name] = sp.Symbol(name)
+
+        equations = []
+        try:
+            for line in lines:
+                if "=" in line:
+                    left, right = line.split("=", 1)
+                else:
+                    left, right = line, "0"
+                lhs = self._parse_linear_expr(left, locs)
+                rhs = self._parse_linear_expr(right, locs)
+                equations.append(sp.Eq(lhs, rhs))
+        except Exception as e:
+            _show_modal(self._app, "LINEAR EQUATIONS", [],
+                        error=f"⚠  Parse error: {e}", hdr_color=self._PRPDK)
+            return
+
+        if var_names:
+            vars_list = [sp.Symbol(name) for name in var_names]
+        else:
+            vars_set = set()
+            for eq in equations:
+                vars_set.update(eq.free_symbols)
+            vars_list = sorted(vars_set, key=lambda s: s.name)
+
+        if not vars_list:
+            _show_modal(self._app, "LINEAR EQUATIONS", [],
+                        error="⚠  No variables found", hdr_color=self._PRPDK)
+            return
+
+        try:
+            linear_eqs = [eq.lhs - eq.rhs for eq in equations]
+            A, b = sp.linear_eq_to_matrix(linear_eqs, vars_list)
+            sol_set = sp.linsolve((A, b), *vars_list)
+        except Exception as e:
+            _show_modal(self._app, "LINEAR EQUATIONS", [],
+                        error=f"⚠  Linear solve error: {e}", hdr_color=self._PRPDK)
+            return
+
+        if sol_set == sp.EmptySet:
+            _show_modal(self._app, "LINEAR EQUATIONS", [],
+                        error="⚠  No solution", hdr_color=self._PRPDK)
+            return
+
+        sol_tuple = next(iter(sol_set))
+        all_numeric = all(v.is_number for v in sol_tuple)
+        if all_numeric:
+            try:
+                arr = np.array([float(sp.N(v)) for v in sol_tuple], dtype=float)
+                vec_str = np.array2string(arr, precision=6, separator=" ")
+            except Exception:
+                vec_str = "[" + ", ".join(str(sp.simplify(v)) for v in sol_tuple) + "]"
+        else:
+            vec_str = "[" + ", ".join(str(sp.simplify(v)) for v in sol_tuple) + "]"
+
+        rows = [
+            ("Variables:", ", ".join(str(v) for v in vars_list)),
+            ("Solution vector:", vec_str),
+        ]
+        rows.extend((f"{var} =", str(sp.simplify(val))) for var, val in zip(vars_list, sol_tuple))
+        _show_modal(self._app, "LINEAR EQUATIONS", rows, hdr_color=self._PRPDK)
+
+
+class LinearEquationPage(LinearPage):
+    def __init__(self, app):
+        super().__init__(app, equation_only=True,
+                         page_title="SYSTEM OF LINEAR EQUATION")
+
+    def on_show(self):
+        self._build_grids()
 
 
 # ── Fourier Series page ───────────────────────────────────────────────────────
