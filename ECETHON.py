@@ -804,9 +804,11 @@ class LinearPage(Page):
             fill=WHITE, text="Supports complex numbers  e.g.  3+4j  or  2-1j"
         )
 
-        # CALCULATE button (fixed, always on top)
-        cbtn(cv, W//2-140, 636, W//2+140, 686, "CALCULATE",
+        # Two actions: matrix operation result, and variable solve for A*X=B
+        cbtn(cv, W//2-310, 636, W//2-20, 686, "CALCULATE",
              ("OPTIVagRound-Bold", 20), self._PURPLE, self._PRPDK, self._calc, r=26)
+        cbtn(cv, W//2+20, 636, W//2+310, 686, "SOLVE X,Y,Z",
+             ("OPTIVagRound-Bold", 20), GREEN, GRN_DK, self._solve_from_matrices, r=26)
 
     def _spin(self, x, y, var):
         # read-only spinbox so users can only increment/decrement (not type invalid values)
@@ -964,6 +966,89 @@ class LinearPage(Page):
         if not np.any(arr.imag):
             return arr.real  # return a real array if no imaginary parts exist (cleaner output)
         return arr
+
+    @staticmethod
+    def _default_var_symbols(count):
+        names = ["x", "y", "z", "w", "v", "u"]
+        syms = [sp.Symbol(n) for n in names[:count]]
+        if count > len(names):
+            syms.extend(sp.Symbol(f"x{i+1}") for i in range(len(names), count))
+        return syms
+
+    @staticmethod
+    def _fmt_solution(val):
+        val = sp.simplify(val)
+        if getattr(val, "free_symbols", set()):
+            return str(val)
+        try:
+            c = complex(val.evalf())
+            if abs(c.imag) < 1e-12:
+                return f"{c.real:.6g}"
+            sign = "+" if c.imag >= 0 else "-"
+            return f"{c.real:.6g}{sign}{abs(c.imag):.6g}j"
+        except Exception:
+            return str(val)
+
+    def _solve_from_matrices(self):
+        if self._equation_only:
+            self._calc_linear_equations()
+            return
+
+        if self.op_var.get() == self._EQ_OP:
+            self._calc_linear_equations()
+            return
+
+        try:
+            A = np.asarray(self._read_grid(self._cellsA), dtype=complex)
+            B = np.asarray(self._read_grid(self._cellsB), dtype=complex)
+        except Exception:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error="⚠  Invalid value in a matrix cell", hdr_color=self._PRPDK)
+            return
+
+        if A.ndim != 2 or B.ndim != 2:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error="⚠  Matrices must be 2D", hdr_color=self._PRPDK)
+            return
+
+        rA, cA = A.shape
+        rB, cB = B.shape
+
+        if rA != cA:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error="⚠  Matrix A must be square (n×n)", hdr_color=self._PRPDK)
+            return
+
+        if rB != rA or cB != 1:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error="⚠  Set Matrix B to n×1 so the app can solve A*X = B",
+                        hdr_color=self._PRPDK)
+            return
+
+        vars_list = self._default_var_symbols(rA)
+        A_sp = sp.Matrix(A.tolist())
+        b_sp = sp.Matrix(B.reshape(rB, 1).tolist())
+
+        try:
+            sol_set = sp.linsolve((A_sp, b_sp), *vars_list)
+        except Exception as e:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error=f"⚠  Solve error: {e}", hdr_color=self._PRPDK)
+            return
+
+        if sol_set == sp.EmptySet:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error="⚠  No solution", hdr_color=self._PRPDK)
+            return
+
+        sol_tuple = next(iter(sol_set))
+        rows = [
+            ("System:", f"{rA} equations, {rA} unknowns"),
+            ("Variables:", ", ".join(str(v) for v in vars_list)),
+        ]
+        rows.extend((f"{var} =", self._fmt_solution(val))
+                    for var, val in zip(vars_list, sol_tuple))
+        _show_modal(self._app, "SOLVE X,Y,Z", rows, hdr_color=self._PRPDK)
 
     # ── calculation ───────────────────────────────────────────────────────────
     def _calc(self):
