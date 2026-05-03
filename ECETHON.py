@@ -9,13 +9,22 @@ from sympy.parsing.sympy_parser import (
     parse_expr,
     standard_transformations,
     implicit_multiplication_application,
+    implicit_application,
 )
 import matplotlib
 matplotlib.use("TkAgg")       # must be set before pyplot is imported
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-_PARSE_TRANSFORMS = standard_transformations + (implicit_multiplication_application,)
+_PARSE_TRANSFORMS = standard_transformations + (
+    implicit_multiplication_application,
+    implicit_application,
+)
+
+
+def _unit_step(x):
+    # Use Heaviside(x, 1) so u(0)=1, matching common engineering convention.
+    return sp.Heaviside(x, 1)
 
 # ── Shared input parser (used by all pages) ───────────────────────────────────
 # Only these names are recognized when evaluating user-typed expressions — nothing else can be executed
@@ -32,6 +41,11 @@ _SAFE_LOCALS = {
     'abs':  sp.Abs,  'Abs': sp.Abs,  'sign': sp.sign,
     'floor': sp.floor, 'ceil': sp.ceiling,
     're': sp.re, 'im': sp.im, 'arg': sp.arg, 'conj': sp.conjugate,
+    # signals (for Laplace)
+    'u': _unit_step, 'U': _unit_step, 'H': _unit_step,
+    'step': _unit_step, 'heaviside': _unit_step,
+    'delta': sp.DiracDelta, 'dirac': sp.DiracDelta, 'impulse': sp.DiracDelta,
+    'DiracDelta': sp.DiracDelta, 'δ': sp.DiracDelta,
 }
 
 def _normalize(raw):
@@ -42,9 +56,11 @@ def _normalize(raw):
       * × -> *  ÷ -> /  (unicode operators)
       * bare i or j  ->  I  (imaginary unit, skips pi/sin/etc.)
       * implicit mult: 2I -> 2*I,  3pi -> 3*pi
+            * Laplace aliases: δ(t) -> delta(t), e^-at -> exp(-a*t)
     """
     s = raw.strip()
     s = s.replace('\u00d7', '*').replace('\u00f7', '/').replace('^', '**')
+    s = s.replace('δ', 'delta')
     # Replace standalone imaginary i/j not inside a word  (e.g. j not in 'pi','sin')
     s = _re.sub(r'(?<![A-Za-z_])j(?![A-Za-z_0-9])', 'I', s)
     s = _re.sub(r'(?<![A-Za-z_])i(?![A-Za-z_0-9])', 'I', s)
@@ -52,7 +68,104 @@ def _normalize(raw):
     s = _re.sub(r'(\d)(I\b)',  r'\1*\2', s)
     s = _re.sub(r'(\d)(pi\b)', r'\1*\2', s)
     s = _re.sub(r'(?<=[\d\)])(pi|e|I)\b', r'*\1', s)
+    # Trig shorthand support: cos2t, cos 2t, sin3t -> cos(2*t), sin(3*t)
+    s = _re.sub(
+        r'\b(sin|cos|tan|sinh|cosh|tanh)\s*([+-]?\d+(?:\.\d+)?)\s*\*?\s*t\b',
+        lambda m: f"{m.group(1)}({m.group(2)}*t)",
+        s,
+    )
+    s = _re.sub(
+        r'\b(sin|cos|tan|sinh|cosh|tanh)\s*t\b',
+        lambda m: f"{m.group(1)}(t)",
+        s,
+    )
+    # Common Laplace shorthand support: e^-t, e^-5t, e^-2.5t
+    s = _re.sub(r'\be\*\*-\s*t\b', 'exp(-t)', s)
+    s = _re.sub(r'\be\*\*-\s*([0-9]+(?:\.[0-9]+)?)\s*\*?\s*t\b', r'exp(-\1*t)', s)
     return s
+
+
+def _parse_symbolic(raw, locs):
+    """Parse symbolic math safely with implicit multiplication/application enabled."""
+    return parse_expr(
+        _normalize(raw),
+        local_dict=locs,
+        transformations=_PARSE_TRANSFORMS,
+        evaluate=True,
+    )
+
+
+def _laplace_preprocess(raw):
+    """Apply laplace.py-style preprocessing for forward Laplace inputs."""
+    expr_str = _normalize(raw).strip()
+    expr_str = _re.sub(r'\bu\s*\(\s*t\s*\)', '1', expr_str)
+    expr_str = _re.sub(r'\*\s*u\s*\(\s*t\s*\)', '', expr_str)
+    expr_str = _re.sub(r'u\s*\(\s*t\s*\)\s*\*', '', expr_str)
+    expr_str = _re.sub(r'\bdelta\s*\(\s*t\s*\)', 'DiracDelta(t)', expr_str)
+    expr_str = _re.sub(r'\bimpulse\s*\(\s*t\s*\)', 'DiracDelta(t)', expr_str)
+    expr_str = _re.sub(r'\bdirac\s*\(\s*t\s*\)', 'DiracDelta(t)', expr_str)
+    expr_str = _re.sub(r'\bdelta\b', 'DiracDelta(t)', expr_str)
+    expr_str = _re.sub(r'\bimpulse\b', 'DiracDelta(t)', expr_str)
+    expr_str = _re.sub(r'\bdirac\b', 'DiracDelta(t)', expr_str)
+    if not expr_str:
+        expr_str = '0'
+    return expr_str
+    
+def _laplace_clean_text(text):
+    """Normalize Laplace display text for readability."""
+    return (
+        str(text)
+        .replace("**", "^")
+        .replace("DiracDelta(t)", "delta(t)")
+        .replace("Heaviside(t, 1)", "u(t)")
+        .replace("Heaviside(t)", "u(t)")
+    )
+
+def _laplace_format_parts(result, s_sym):
+    """Split a rational expression into printable whole/fraction terms."""
+    result = sp.simplify(sp.apart(result, s_sym))
+    terms = sp.Add.make_args(result)
+    parts = []
+    for term in terms:
+        numer, denom = sp.fraction(term)
+        numer = sp.expand(numer)
+        denom = sp.expand(denom)
+        if denom == 1:
+            parts.append(("whole", _laplace_clean_text(numer), None))
+        else:
+            parts.append(("frac", _laplace_clean_text(numer), _laplace_clean_text(denom)))
+    return parts
+
+def _laplace_render_parts(parts):
+    """Render fractions in stacked/vertical form without decorative boxes."""
+    lines_num, lines_bar, lines_den = [], [], []
+    pad = 3
+
+    for i, part in enumerate(parts):
+        sign = "   "
+        if i > 0:
+            raw = part[1]
+            sign = " - " if raw.startswith("-") else " + "
+
+        if part[0] == "whole":
+            val = part[1].lstrip("-") if (i > 0 and part[1].startswith("-")) else part[1]
+            width = len(sign) + len(val)
+            lines_num.append(sign + val)
+            lines_bar.append(" " * width)
+            lines_den.append(" " * width)
+        else:
+            n_str, d_str = part[1], part[2]
+            inner_w = max(len(n_str), len(d_str)) + pad
+            lines_num.append(sign + n_str.center(inner_w))
+            lines_bar.append(" " * len(sign) + ("─" * inner_w))
+            lines_den.append(" " * len(sign) + d_str.center(inner_w))
+
+    row1 = "".join(lines_num).rstrip()
+    row2 = "".join(lines_bar).rstrip()
+    row3 = "".join(lines_den).rstrip()
+    if row2.strip():
+        return f"{row1}\n{row2}\n{row3}"
+    return row1
 
 def _parse_num(raw):
     """Parse a numeric expression string to Python complex.
@@ -673,7 +786,23 @@ class ComplexPage(Page):
 
 # ── Shared result-modal mixin ────────────────────────────────────────────────
 def _show_modal(app, title, rows, error=None, hdr_color=NAVY):
-    MW, MH = 580, 120 + (len(rows) * 46 if rows else 100) + 80  # height grows automatically with the number of result rows
+    max_chars = 0
+    if rows:
+        for _, value in rows:
+            for ln in str(value).splitlines() or [""]:
+                max_chars = max(max_chars, len(ln))
+
+    MW = max(580, min(940, 320 + max_chars * 8))
+    row_heights = []
+    if rows:
+        for _, value in rows:
+            line_count = str(value).count("\n") + 1
+            row_heights.append(max(46, 14 + line_count * 20))
+        content_h = sum(row_heights)
+    else:
+        content_h = 100
+
+    MH = 120 + content_h + 80  # height grows with row count and multiline content
     MH = max(MH, 300)  # enforce a minimum height so the modal never looks too small
     m = tk.Toplevel()
     m.title(title)
@@ -695,15 +824,22 @@ def _show_modal(app, title, rows, error=None, hdr_color=NAVY):
                        font=("OPTIVagRound-Bold", 16), fill=RED, justify="center")
     else:
         rr(cv, 24, 76, MW-24, MH-68, r=22, fill=CARD, outline="")
-        lx, vx = 44, 260
+        lx, vx = 44, 190
+        y = 108
         for idx, (label, value) in enumerate(rows):
-            y = 108 + idx * 46
-            cv.create_text(lx, y, anchor="w", font=("OPTIVagRound-Bold", 15),
+            value_text = str(value)
+            line_count = value_text.count("\n") + 1
+            row_h = row_heights[idx] if idx < len(row_heights) else 46
+            value_font = ("Consolas", 13) if line_count > 1 else ("OPTIVagRound-Bold", 15)
+
+            cv.create_text(lx, y, anchor="nw", font=("OPTIVagRound-Bold", 15),
                            fill=NAVY, text=label)
-            cv.create_text(vx, y, anchor="w", font=("OPTIVagRound-Bold", 15),
-                           fill=NAVY, text=value)
+            cv.create_text(vx, y, anchor="nw", font=value_font,
+                           fill=NAVY, text=value_text)
             if idx < len(rows) - 1:
-                cv.create_line(40, y+22, MW-40, y+22, fill="#90C8E8", width=1)
+                cv.create_line(40, y + row_h - 8, MW-40, y + row_h - 8,
+                               fill="#90C8E8", width=1)
+            y += row_h
     cbtn(cv, MW//2-80, MH-58, MW//2+80, MH-12, "CLOSE",
          ("OPTIVagRound-Bold", 16), RED, RED_DK, m.destroy, r=18)
 
@@ -1580,12 +1716,12 @@ class LaplacePage(Page):
 
         cv.create_text(x1+40, 280, anchor="w",
                        font=("OPTIVagRound-Bold", 15), fill=NAVY,
-                       text="Expression  (use  t  for Laplace,  s  for Inverse):")
+                       text="Expression  (t for Laplace, s for Inverse; supports u(t), delta(t), δ(t)):")
         self.expr = tk.Entry(self, font=("OPTIVagRound-Bold", 18),
                              bg="#D6EEFA", fg=NAVY, relief="flat",
                              highlightthickness=2, highlightbackground=NAVY,
                              insertbackground=NAVY, justify="center")
-        self.expr.insert(0, "exp(-t)")  # pre-fill with a common example so the user can run it immediately
+        self.expr.insert(0, "delta(t) + 7*u(t) - 6*exp(-5*t)*u(t)")
         self.expr.place(x=x1+40, y=305, height=42, width=cw-80)
         self.expr.bind("<Return>", lambda e: self._calc())  # Enter key triggers calculation
 
@@ -1599,23 +1735,28 @@ class LaplacePage(Page):
                         error="⚠  Enter an expression", hdr_color=self._PINKDK)
             return
         try:
-            t, s = sp.Symbol("t", positive=True), sp.Symbol("s")  # t is the time variable, s is the complex frequency variable
+            t, s = sp.Symbol("t", positive=True), sp.Symbol("s")
             op   = self.op_var.get()
             locs = {**_SAFE_LOCALS, 't': t, 's': s}  # extend the safe whitelist with the two transform variables
-            expr = sp.sympify(_normalize(raw), locals=locs)  # parse the user expression into a SymPy expression
             if op == "Laplace Transform":
-                result = sp.laplace_transform(expr, t, s, noconds=True)  # compute F(s) from f(t); noconds=True suppresses convergence conditions
+                # Apply the same preprocessing strategy used in laplace.py
+                preprocessed = _laplace_preprocess(raw)
+                expr = _parse_symbolic(preprocessed, locs)
+                result = sp.simplify(sp.laplace_transform(expr, t, s, noconds=True))
+                expr_display = _laplace_clean_text(sp.simplify(expr))
+                fs_display = _laplace_clean_text(sp.simplify(sp.apart(result, s)))
                 rows = [
-                    ("f(t):",  sp.pretty(expr,  use_unicode=True)),   # original time-domain expression
-                    ("F(s):",  sp.pretty(result, use_unicode=True)),   # Laplace result in s-domain
-                    ("F(s) simplified:", str(sp.simplify(result))),    # algebraically simplified form
+                    ("f(t) =", expr_display),
+                    ("F(s) =", fs_display),
                 ]
             else:
+                expr = _parse_symbolic(raw, locs)
                 result = sp.inverse_laplace_transform(expr, s, t, noconds=True)  # compute f(t) from F(s)
+                expr_display = _laplace_clean_text(sp.simplify(expr))
+                result_display = _laplace_clean_text(sp.simplify(result))
                 rows = [
-                    ("F(s):",  sp.pretty(expr,   use_unicode=True)),   # original s-domain expression
-                    ("f(t):",  sp.pretty(result,  use_unicode=True)),   # inverse Laplace result in time-domain
-                    ("f(t) simplified:", str(sp.simplify(result))),     # algebraically simplified form
+                    ("F(s) =", expr_display),
+                    ("f(t) =", result_display),
                 ]
             _show_modal(self._app, op.upper(), rows, hdr_color=self._PINKDK)
         except Exception as e:
