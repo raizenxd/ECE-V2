@@ -801,7 +801,8 @@ class LinearPage(Page):
         # hint
         self._hint_id = cv.create_text(
             W//2, 706, font=("OPTIVagRound-Bold", 11),
-            fill=WHITE, text="Supports complex numbers  e.g.  3+4j  or  2-1j"
+            fill=WHITE,
+            text="Use A and B for A*X=B, or augmented A (e.g. 6 7 8 -> 6x+7y=8). Supports complex values."
         )
 
         # Two actions: matrix operation result, and variable solve for A*X=B
@@ -883,7 +884,7 @@ class LinearPage(Page):
 
         self._eq_frame.place_forget()
         self.cv.itemconfigure(self._hint_id,
-                              text="Supports complex numbers  e.g.  3+4j  or  2-1j")
+                              text="Use A and B for A*X=B, or augmented A (e.g. 6 7 8 -> 6x+7y=8). Supports complex values.")
 
         CW, CH, P = self._CELL_W, self._CELL_H, self._PAD
 
@@ -989,6 +990,28 @@ class LinearPage(Page):
         except Exception:
             return str(val)
 
+    def _equation_from_row(self, coeff_row, rhs, vars_list):
+        terms = []
+        for coeff, var in zip(coeff_row, vars_list):
+            c = complex(coeff)
+            if abs(c.real) < 1e-12 and abs(c.imag) < 1e-12:
+                continue
+
+            if abs(c.imag) < 1e-12:
+                rv = c.real
+                if abs(rv - 1.0) < 1e-12:
+                    terms.append(f"{var}")
+                elif abs(rv + 1.0) < 1e-12:
+                    terms.append(f"-{var}")
+                else:
+                    terms.append(f"{rv:.6g}{var}")
+            else:
+                terms.append(f"({self._fmt_solution(c)}){var}")
+
+        lhs = " + ".join(terms) if terms else "0"
+        lhs = lhs.replace("+ -", "- ")
+        return f"{lhs} = {self._fmt_solution(rhs)}"
+
     def _solve_from_matrices(self):
         if self._equation_only:
             self._calc_linear_equations()
@@ -1014,20 +1037,35 @@ class LinearPage(Page):
         rA, cA = A.shape
         rB, cB = B.shape
 
-        if rA != cA:
+        if cA < 1:
             _show_modal(self._app, "SOLVE X,Y,Z", [],
-                        error="⚠  Matrix A must be square (n×n)", hdr_color=self._PRPDK)
+                        error="⚠  Matrix A must have at least 1 column", hdr_color=self._PRPDK)
             return
 
-        if rB != rA or cB != 1:
+        use_augmented = not (rB == rA and cB == 1)
+        if use_augmented:
+            if cA < 2:
+                _show_modal(self._app, "SOLVE X,Y,Z", [],
+                            error="⚠  For augmented mode, Matrix A must be n×(m+1)",
+                            hdr_color=self._PRPDK)
+                return
+            coeff = A[:, :-1]
+            rhs = A[:, -1].reshape(rA, 1)
+            source_label = "Mode: augmented Matrix A"
+        else:
+            coeff = A
+            rhs = B.reshape(rB, 1)
+            source_label = "Mode: A*X = B"
+
+        eq_count, var_count = coeff.shape
+        if var_count < 1:
             _show_modal(self._app, "SOLVE X,Y,Z", [],
-                        error="⚠  Set Matrix B to n×1 so the app can solve A*X = B",
-                        hdr_color=self._PRPDK)
+                        error="⚠  No variable columns found", hdr_color=self._PRPDK)
             return
 
-        vars_list = self._default_var_symbols(rA)
-        A_sp = sp.Matrix(A.tolist())
-        b_sp = sp.Matrix(B.reshape(rB, 1).tolist())
+        vars_list = self._default_var_symbols(var_count)
+        A_sp = sp.Matrix(coeff.tolist())
+        b_sp = sp.Matrix(rhs.tolist())
 
         try:
             sol_set = sp.linsolve((A_sp, b_sp), *vars_list)
@@ -1042,10 +1080,14 @@ class LinearPage(Page):
             return
 
         sol_tuple = next(iter(sol_set))
+        eq_rows = [self._equation_from_row(coeff[i], rhs[i][0], vars_list)
+                   for i in range(eq_count)]
         rows = [
-            ("System:", f"{rA} equations, {rA} unknowns"),
+            ("System:", f"{eq_count} equations, {var_count} unknowns"),
             ("Variables:", ", ".join(str(v) for v in vars_list)),
+            ("Interpretation:", source_label),
         ]
+        rows.extend((f"Eq {i+1}:", eq_text) for i, eq_text in enumerate(eq_rows))
         rows.extend((f"{var} =", self._fmt_solution(val))
                     for var, val in zip(vars_list, sol_tuple))
         _show_modal(self._app, "SOLVE X,Y,Z", rows, hdr_color=self._PRPDK)
