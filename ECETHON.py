@@ -135,7 +135,7 @@ class App(tk.Tk):
             ("creator", CreatorPage),
             ("complex", ComplexPage),
             ("linear",  LinearPage),
-            ("lineareq", LinearEquationPage),
+            # ("lineareq", LinearEquationPage),  # hidden from App pages
             ("fourier", FourierPage),
             ("laplace", LaplacePage),
         ]:
@@ -505,7 +505,7 @@ class TopicsPage(Page):
     _TOPICS = [
         ("Complex\nNumbers",   "complex",  GREEN,     GRN_DK),
         ("Linear\nAlgebra",    "linear",   "#8B5CF6", "#5B2CC0"),
-        ("Linear\nEquation",   "lineareq", "#7C3AED", "#5B21B6"),
+        # ("Linear\nEquation",   "lineareq", "#7C3AED", "#5B21B6"),  # hidden from Topics
         ("Fourier\nSeries",    "fourier",  "#F97316", "#C05010"),
         ("Laplace\nTransform", "laplace",  "#EC4899", "#A01060"),
     ]
