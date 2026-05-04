@@ -276,13 +276,19 @@ class Page(tk.Frame):
     def go(self, name):  # shortcut so subclasses can call self.go() instead of self._app.go()
         self._app.go(name)
 
-    def _topbar(self, cv, back="home"):
+    def _topbar(self, cv, back="home", help_cmd=None):
         cbtn(cv, 30, 18, 180, 68, "BACK",
              ("OPTIVagRound-Bold", 20), RED, RED_DK, lambda: self.go(back), r=18)  # BACK navigates to the previous page
         otxt(cv, W//2, 44, "ECETHON",
              ("OPTIVagRound-Bold", 26), fill=GREEN, ol=NAVY, ow=2)  # centered app name label
+        if help_cmd:
+            cbtn(cv, W-230, 18, W-190, 68, "?",
+                 ("OPTIVagRound-Bold", 22), YELLOW, YEL_DK, help_cmd, r=14)
         cbtn(cv, W-180, 18, W-30, 68, "HOME",
              ("OPTIVagRound-Bold", 20), YELLOW, YEL_DK, lambda: self.go("home"), r=18)  # HOME always goes to the landing screen
+
+    def _show_how_to_use(self, rows):
+        _show_modal(self._app, "HOW TO USE", rows, hdr_color=NAVY)
 
     @staticmethod
     def _purplebar(cv):
@@ -671,7 +677,13 @@ class ComplexPage(Page):
         cv = self.cv
         cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
         self._purplebar(cv)
-        self._topbar(cv, "topics")
+        help_rows = [
+            ("Input:", "Complex expression using i/j, pi, e, sqrt, sin, cos, exp, log."),
+            ("How to use:", "Type in the box, then press CALCULATE or Enter."),
+            ("Result:", "Shows a+bj plus real/imag, magnitude, and phase."),
+            ("Hotkeys:", "Enter = Calculate"),
+        ]
+        self._topbar(cv, "topics", lambda: self._show_how_to_use(help_rows))
 
         otxt(cv, W//2, 148, "COMPLEX NUMBERS",
              ("OPTIVagRound-Bold", 54), fill=WHITE, ol=NAVY, ow=4)
@@ -878,7 +890,13 @@ class LinearPage(Page):
         cv = self.cv
         cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
         self._purplebar(cv)
-        self._topbar(cv, "topics")
+        help_rows = [
+            ("Input:", "Set sizes, then fill Matrix A and B. Or pick Linear Equations (solve variables)."),
+            ("How to use:", "CALCULATE for matrix ops; SOLVE X,Y,Z for A*X=B or augmented A."),
+            ("Result:", "Matrix output or variable solution."),
+            ("Hotkeys:", "None"),
+        ]
+        self._topbar(cv, "topics", lambda: self._show_how_to_use(help_rows))
 
         # title
         otxt(cv, W//2, 105, self._page_title,
@@ -1379,6 +1397,8 @@ class FourierPage(Page):
     _ORGDK = "#C05010"
     _n_sym = sp.Symbol("n", integer=True, positive=True)
 
+    _DEFAULT_HARMONICS = 10
+
     _MAX_PIECES = 6
 
     def __init__(self, app):
@@ -1394,56 +1414,48 @@ class FourierPage(Page):
     # ── static chrome ──────────────────────────────────────────────────────────
     def _draw_static(self):
         cv = self.cv
+        y_shift = 43
         cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
         self._purplebar(cv)
-        self._topbar(cv, "topics")
-        otxt(cv, W//2, 105, "FOURIER SERIES",
+        help_rows = [
+            ("Input:", "Add piece rows with f(x) and interval bounds."),
+            ("How to use:", "Use + ADD PIECE / REMOVE LAST, then CALCULATE."),
+            ("Result:", "Shows coefficients, plot, and final series (N=10)."),
+            ("Hotkeys:", "None"),
+        ]
+        self._topbar(cv, "topics", lambda: self._show_how_to_use(help_rows))
+        otxt(cv, W//2, 105 + y_shift, "FOURIER SERIES",
              ("OPTIVagRound-Bold", 46), fill=WHITE, ol=NAVY, ow=4)
 
         # Main input card
-        rr(cv, 30, 128, W-30, 598, r=24, fill=CARD, outline="")
+        rr(cv, 30, 128 + y_shift, W-30, 598 + y_shift, r=24, fill=CARD, outline="")
 
         # Column headers
-        cv.create_text(90,  153, anchor="center",
+        cv.create_text(90,  153 + y_shift, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY, text="#")
-        cv.create_text(390, 153, anchor="center",
+        cv.create_text(280, 153 + y_shift, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY,
-                       text="f(x)  Expression  (use x, sin, cos, pi, abs, …)")
-        cv.create_text(730, 153, anchor="center",
+                       text="f(x)  Expression")
+        cv.create_text(500, 153 + y_shift, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY, text="From  x =")
-        cv.create_text(910, 153, anchor="center",
+        cv.create_text(650, 153 + y_shift, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY, text="To  x =")
-        cv.create_line(50, 166, W-50, 166, fill="#4A7AB5", width=1)
+        cv.create_line(50, 166 + y_shift, W-50, 166 + y_shift, fill="#4A7AB5", width=1)
 
         # Piece row container
         self._piece_container = tk.Frame(self, bg=CARD)
-        self._piece_container.place(x=50, y=172, width=W-100, height=270)
+        self._piece_container.place(x=50, y=172 + y_shift, width=W-100, height=270)
 
         # Add / Remove buttons
-        cbtn(cv, 50,  454, 220, 492, "+ ADD PIECE",
+        cbtn(cv, 50,  454 + y_shift, 220, 492 + y_shift, "+ ADD PIECE",
              ("OPTIVagRound-Bold", 12), self._ORG, self._ORGDK,
              self._add_piece, r=14)
-        cbtn(cv, 228, 454, 398, 492, "REMOVE LAST",
+        cbtn(cv, 228, 454 + y_shift, 398, 492 + y_shift, "REMOVE LAST",
              ("OPTIVagRound-Bold", 12), "#DC2626", "#7F1D1D",
              self._remove_piece, r=14)
 
-        # Harmonics N  (limits auto-detected from piece bounds)
-        cv.create_text(460, 474, anchor="w",
-                       font=("OPTIVagRound-Bold", 14), fill=NAVY,
-                       text="Harmonics  N :")
-        self.nterms_var = tk.StringVar(value="10")
-        tk.Spinbox(self, from_=1, to=50, textvariable=self.nterms_var,
-                   width=4, font=("OPTIVagRound-Bold", 14),
-                   bg="#D6EEFA", fg=NAVY, relief="flat",
-                   highlightthickness=1, highlightbackground=NAVY,
-                   justify="center").place(x=616, y=456, height=36)
-
-        cv.create_text(690, 474, anchor="w",
-                       font=("OPTIVagRound-Bold", 11), fill=NAVY,
-                       text="(limits a & b are auto-detected from piece bounds)")
-
         # CALCULATE button
-        cbtn(cv, W//2-165, 516, W//2+165, 576, "CALCULATE",
+        cbtn(cv, W//2-165, 516 + y_shift, W//2+165, 576 + y_shift, "CALCULATE",
              ("OPTIVagRound-Bold", 22), self._ORG, self._ORGDK, self._calc, r=28)
 
     # ── piece row management ──────────────────────────────────────────────────
@@ -1497,10 +1509,7 @@ class FourierPage(Page):
         x_sym = sp.Symbol("x")
         n_sym = self._n_sym
 
-        try:
-            N = int(self.nterms_var.get())
-        except Exception:
-            N = 10
+        N = self._DEFAULT_HARMONICS
 
         locs = {**_SAFE_LOCALS, 'x': x_sym, 'Piecewise': sp.Piecewise}
 
@@ -1698,7 +1707,13 @@ class LaplacePage(Page):
         cv = self.cv
         cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
         self._purplebar(cv)
-        self._topbar(cv, "topics")
+        help_rows = [
+            ("Input:", "Enter f(t) using t, exp(), sin(), cos(), u(t), delta(t)."),
+            ("How to use:", "Press CALCULATE or Enter."),
+            ("Result:", "Shows F(s) Laplace transform."),
+            ("Hotkeys:", "Enter = Calculate"),
+        ]
+        self._topbar(cv, "topics", lambda: self._show_how_to_use(help_rows))
         otxt(cv, W//2, 148, "LAPLACE TRANSFORM",
              ("OPTIVagRound-Bold", 48), fill=WHITE, ol=NAVY, ow=4)
 
@@ -1708,21 +1723,15 @@ class LaplacePage(Page):
 
         rr(cv, x1, 190, x2, 360, r=30, fill=CARD, outline="")
 
-        ops = ["Laplace Transform", "Inverse Laplace"]
-        self.op_var = tk.StringVar(value=ops[0])
-        cb = ttk.Combobox(self, textvariable=self.op_var, values=ops,
-                          font=("OPTIVagRound-Bold", 16), state="readonly", width=22)
-        cb.place(x=x1+40, y=215, height=40)
-
-        cv.create_text(x1+40, 280, anchor="w",
+        cv.create_text(x1+40, 230, anchor="w",
                        font=("OPTIVagRound-Bold", 15), fill=NAVY,
-                       text="Expression  (t for Laplace, s for Inverse; supports u(t), delta(t), δ(t)):")
+                   text="Expression  (use t; supports u(t), delta(t)):")
         self.expr = tk.Entry(self, font=("OPTIVagRound-Bold", 18),
                              bg="#D6EEFA", fg=NAVY, relief="flat",
                              highlightthickness=2, highlightbackground=NAVY,
                              insertbackground=NAVY, justify="center")
         self.expr.insert(0, "delta(t) + 7*u(t) - 6*exp(-5*t)*u(t)")
-        self.expr.place(x=x1+40, y=305, height=42, width=cw-80)
+        self.expr.place(x=x1+40, y=255, height=42, width=cw-80)
         self.expr.bind("<Return>", lambda e: self._calc())  # Enter key triggers calculation
 
         cbtn(cv, cx-130, 375, cx+130, 428, "CALCULATE",
@@ -1736,29 +1745,17 @@ class LaplacePage(Page):
             return
         try:
             t, s = sp.Symbol("t", positive=True), sp.Symbol("s")
-            op   = self.op_var.get()
             locs = {**_SAFE_LOCALS, 't': t, 's': s}  # extend the safe whitelist with the two transform variables
-            if op == "Laplace Transform":
-                # Apply the same preprocessing strategy used in laplace.py
-                preprocessed = _laplace_preprocess(raw)
-                expr = _parse_symbolic(preprocessed, locs)
-                result = sp.simplify(sp.laplace_transform(expr, t, s, noconds=True))
-                expr_display = _laplace_clean_text(sp.simplify(expr))
-                fs_display = _laplace_clean_text(sp.simplify(sp.apart(result, s)))
-                rows = [
-                    ("f(t) =", expr_display),
-                    ("F(s) =", fs_display),
-                ]
-            else:
-                expr = _parse_symbolic(raw, locs)
-                result = sp.inverse_laplace_transform(expr, s, t, noconds=True)  # compute f(t) from F(s)
-                expr_display = _laplace_clean_text(sp.simplify(expr))
-                result_display = _laplace_clean_text(sp.simplify(result))
-                rows = [
-                    ("F(s) =", expr_display),
-                    ("f(t) =", result_display),
-                ]
-            _show_modal(self._app, op.upper(), rows, hdr_color=self._PINKDK)
+            preprocessed = _laplace_preprocess(raw)
+            expr = _parse_symbolic(preprocessed, locs)
+            result = sp.simplify(sp.laplace_transform(expr, t, s, noconds=True))
+            expr_display = _laplace_clean_text(sp.simplify(expr))
+            fs_display = _laplace_clean_text(sp.simplify(sp.apart(result, s)))
+            rows = [
+                ("f(t) =", expr_display),
+                ("F(s) =", fs_display),
+            ]
+            _show_modal(self._app, "LAPLACE TRANSFORM", rows, hdr_color=self._PINKDK)
         except Exception as e:
             _show_modal(self._app, "LAPLACE", [],
                         error=f"⚠  {e}", hdr_color=self._PINKDK)  # catches unsupported transforms or parse errors
