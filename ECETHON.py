@@ -1273,14 +1273,62 @@ class LinearPage(Page):
             sign = "+" if v.imag >= 0 else "-"
             return f"{v.real:.4g}{sign}{abs(v.imag):.4g}j"
 
+        rA, cA = A.shape
+        rB, cB = B.shape
+
         try:
             if op == "Addition (A+B)":
+                if (rA, cA) != (rB, cB):
+                    _show_modal(
+                        self._app,
+                        "A + B",
+                        [],
+                        error=f"⚠  Undefined: Matrix sizes must match exactly ({rA}x{cA} and {rB}x{cB})",
+                        hdr_color=self._PRPDK,
+                    )
+                    return
                 C, title = A + B, "A + B"              # element-wise addition
             elif op == "Subtraction (A-B)":
+                if (rA, cA) != (rB, cB):
+                    _show_modal(
+                        self._app,
+                        "A - B",
+                        [],
+                        error=f"⚠  Undefined: Matrix sizes must match exactly ({rA}x{cA} and {rB}x{cB})",
+                        hdr_color=self._PRPDK,
+                    )
+                    return
                 C, title = A - B, "A − B"              # element-wise subtraction
             elif op == "Multiplication (A×B)":
+                if cA != rB:
+                    _show_modal(
+                        self._app,
+                        "A × B",
+                        [],
+                        error=f"⚠  Undefined: columns of A must equal rows of B ({cA} != {rB})",
+                        hdr_color=self._PRPDK,
+                    )
+                    return
                 C, title = A @ B, "A × B"              # true matrix multiplication (dot product)
             elif op == "Division (A×B⁻¹)":
+                if rB != cB:
+                    _show_modal(
+                        self._app,
+                        "A × B⁻¹",
+                        [],
+                        error=f"⚠  Undefined: Matrix B must be square ({rB}x{cB})",
+                        hdr_color=self._PRPDK,
+                    )
+                    return
+                if cA != rB:
+                    _show_modal(
+                        self._app,
+                        "A × B⁻¹",
+                        [],
+                        error=f"⚠  Undefined: columns of A must equal rows of B ({cA} != {rB})",
+                        hdr_color=self._PRPDK,
+                    )
+                    return
                 C, title = A @ np.linalg.inv(B), "A × B⁻¹"  # A divided by B = A multiplied by the inverse of B
             else:
                 return
