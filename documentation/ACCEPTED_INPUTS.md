@@ -1,147 +1,113 @@
-# ECETHON — Accepted Input Formats
-
-All input fields across every page (Complex Numbers, Linear Algebra, System of Linear Equation, Fourier Series, Laplace Transform) use the shared parsing rules below. The following formats are supported.
+# ECETHON — Accepted Inputs
 
 ---
 
-## Numbers
+## Shared (all pages)
 
-| Format | Examples |
-|--------|---------|
-| Integer | `5`, `-3`, `100` |
-| Decimal | `3.14`, `-0.5`, `2.718` |
-| Fraction | `1/2`, `3/4`, `22/7` |
-| Scientific notation | `1e3`, `2.5e-4` |
+| Category | Accepted |
+|----------|---------|
+| **Numbers** | `5`, `-3`, `3.14`, `1/2`, `1e3`, `2.5e-4` |
+| **Exponents** | `2^4`, `x^2` · `2**4`, `x**2` |
+| **Operators** | `+` `-` `*` `/` `^` `**` `×` `÷` |
+| **Constants** | `pi`, `e` / `E`, `inf` / `oo` |
+| **Imaginary unit** | `i`, `j`, `I` (all equivalent) |
 
----
-
-## Exponents
-
-| Format | Examples |
-|--------|---------|
-| Caret (MATLAB-style) | `2^4`, `x^2`, `e^x` |
-| Double asterisk (Python-style) | `2**4`, `x**2` |
+| Function | Shorthand / aliases |
+|----------|---------------------|
+| `sqrt(x)` | — |
+| `cbrt(x)` | — |
+| `exp(x)` | — |
+| `log(x)` | `ln(x)` |
+| `log10(x)` | — |
+| `sin` `cos` `tan` | radians only |
+| `asin` `acos` `atan` `atan2` | — |
+| `sinh` `cosh` `tanh` | — |
+| `abs(x)` | `Abs(x)` |
+| `floor(x)` `ceil(x)` `sign(x)` | — |
+| `re(z)` `im(z)` `arg(z)` `conj(z)` | — |
 
 ---
 
 ## Complex Numbers
 
-| Format | Examples |
-|--------|---------|
-| Using `i` | `3+2i`, `1-4i`, `5i` |
-| Using `j` | `3+2j`, `1-4j`, `5j` |
-| Using `I` (SymPy) | `3+2*I` |
-| With fractions | `1/2 + 3i`, `(2/3) - (1/4)i` |
-| With expressions | `sqrt(2) + pi*i`, `exp(pi*i)` |
-| Multiplication form | `2*i`, `3*j` |
-| Implicit form | `2I`, `3I` |
+**Variable:** any expression (no fixed variable)
+**Output:** `a + bj`, real, imaginary, magnitude, phase
+
+| Input format | Example |
+|--------------|---------|
+| Using i / j / I | `3+2i` · `1-4j` · `3+2*I` |
+| Implicit form | `2I` · `3I` |
+| With functions | `sqrt(2)+pi*i` · `exp(pi*i)` |
+| With fractions | `1/2+3i` · `(2/3)-(1/4)i` |
+| Full expression | `(3+2i)*(1-i)` · `abs(3+4i)` |
 
 ---
 
-## Constants
+## Linear Algebra
 
-| Input | Value |
-|-------|-------|
-| `pi` | π ≈ 3.14159 |
-| `e` | Euler's number ≈ 2.71828 |
-| `E` | Same as `e` |
+**Variable:** matrix cell values (Matrix A and Matrix B, up to 5×5)
+**Operations:** `A+B` · `A-B` · `A×B` · `A×B⁻¹`
 
----
+Matrix cells accept any numeric expression — integers, decimals, fractions, or complex numbers using the shared syntax above.
 
-## Mathematical Functions
-
-| Function | Description | Example |
-|----------|-------------|---------|
-| `sqrt(x)` | Square root | `sqrt(16)` → 4 |
-| `exp(x)` | Exponential eˣ | `exp(1)` → e |
-| `log(x)` | Natural log (ln) | `log(e)` → 1 |
-| `ln(x)` | Natural log | `ln(e)` → 1 |
-| `log10(x)` | Base-10 log | `log10(100)` → 2 |
-| `sin(x)` | Sine (radians) | `sin(pi/2)` → 1 |
-| `cos(x)` | Cosine (radians) | `cos(0)` → 1 |
-| `tan(x)` | Tangent (radians) | `tan(pi/4)` → 1 |
-| `asin(x)` | Arcsine | `asin(1)` → π/2 |
-| `acos(x)` | Arccosine | `acos(1)` → 0 |
-| `atan(x)` | Arctangent | `atan(1)` → π/4 |
-| `atan2(y, x)` | Two-argument arctangent | `atan2(1, 1)` |
-| `sinh(x)` | Hyperbolic sine | `sinh(0)` → 0 |
-| `cosh(x)` | Hyperbolic cosine | `cosh(0)` → 1 |
-| `tanh(x)` | Hyperbolic tangent | `tanh(0)` → 0 |
-| `abs(x)` | Absolute value / modulus | `abs(-5)` → 5 |
-| `floor(x)` | Round down | `floor(2.9)` → 2 |
-| `ceil(x)` | Round up | `ceil(2.1)` → 3 |
-| `sign(x)` | Sign of x | `sign(-3)` → -1 |
-| `re(z)` | Real part | `re(3+2i)` → 3 |
-| `im(z)` | Imaginary part | `im(3+2i)` → 2 |
-| `arg(z)` | Argument (angle) | `arg(1+i)` → π/4 |
-| `conj(z)` | Complex conjugate | `conj(3+2i)` → 3-2i |
+**Solve X,Y,Z (A·X = B)**
+- Place coefficients in Matrix A, constants in Matrix B (column vector)
+- Or use Matrix A as an augmented matrix `[coefficients | constants]`
+- Variables default to `x, y, z, w, v, u`
 
 ---
 
-## Operators
+## System of Linear Equations
 
-| Symbol | Operation | Example |
-|--------|-----------|---------|
-| `+` | Addition | `3 + 2i` |
-| `-` | Subtraction | `5 - 3` |
-| `*` | Multiplication | `2 * pi` |
-| `/` | Division | `1/2` |
-| `^` or `**` | Exponentiation | `2^3` or `2**3` |
-| `×` | Multiplication (unicode) | `3 × 4` |
-| `÷` | Division (unicode) | `6 ÷ 2` |
+**Variable:** any identifier — auto-detected or listed manually
 
----
-
-## System of Linear Equation Inputs
-
-Use this format in the **System of Linear Equation** page:
-
-| Format | Examples |
-|--------|----------|
+| Input | Example |
+|-------|---------|
 | One equation per line | `3x + y = 9` |
-| Multiple equations | `3x + y = 9` and `x + 2y = 8` |
-| Optional variable list | `x, y` or `x, y, z, a, b, c` |
-| Implicit multiplication | `3x`, `2y`, `5ab` |
-| Fractions/decimals in equations | `0.5x + y = 2`, `(1/3)x - z = 7` |
+| No `=` sign | treated as `= 0` |
+| Implicit multiplication | `3x`, `2y`, `5z` |
+| Fractions / decimals | `(1/3)x - z = 7` · `0.5x + y = 2` |
+| Custom variable list | `x, y, z` (comma-separated in the vars field) |
 
-Notes:
-- `=` is used to separate left-hand side and right-hand side of each equation.
-- If the variable list is blank, variables are auto-detected from the equations.
-- Variable names should follow standard identifier rules (example: `x`, `y1`, `z_var`).
+- Variables are auto-detected when the variable field is left blank
+- Variable names must be valid identifiers: `x`, `y1`, `z_var`
 
 ---
 
-## Page-Specific Variables
+## Fourier Series
 
-| Page | Variable | Meaning |
-|------|----------|---------|
-| System of Linear Equation | `x`, `y`, `z`, `a`, `b`, `c`, ... | Unknowns to solve for |
-| Fourier Series | `x` | Independent variable in f(x) expressions |
-| Laplace Transform | `t` | Time-domain variable |
-| Laplace Inverse | `s` | Frequency-domain variable |
+**Variable:** `x`
+**Interval bounds:** any numeric expression (`pi`, `-pi`, `0`, `2`, …)
+**Harmonics:** N = 10 (fixed)
 
----
+| Input | Example |
+|-------|---------|
+| Constant | `0`, `1`, `-3` |
+| Polynomial | `x`, `x^2`, `x+1` |
+| Trig | `sin(x)`, `cos(2*x)` |
+| Mixed | `x*sin(x)`, `exp(-x)` |
 
-## Combined Examples
-
-```
-(3 + 2i) * (1 - i)
-(1/2 + sqrt(3)*i)^2
-exp(pi * i) + 1
-sin(pi/4) + cos(pi/4)*i
-2^8 - 1
-log(e^3)
-abs(3 + 4i)
-(2/3) / (1 + i)
-3x + y = 9
-x + 2y = 8
-```
+Each piece row defines `f(x)` over `from ≤ x ≤ to`. Add up to 6 pieces.
 
 ---
 
-## Notes
+## Laplace Transform
 
-- Angles in trigonometric functions are in **radians**. Use `pi` for π.
-- Fractions like `1/2` are evaluated exactly (e.g. `1/2 + 1/3` = `5/6`).
-- Spaces are allowed anywhere in expressions.
-- Both `i` and `j` are treated as the imaginary unit.
+**Forward variable:** `t` → outputs `F(s)`
+**Inverse variable:** `s` → outputs `f(t)`
+
+| Signal | Accepted inputs |
+|--------|----------------|
+| Unit step | `u(t)` · `U(t)` · `H(t)` · `step(t)` · `heaviside(t)` |
+| Dirac delta | `delta(t)` · `δ(t)` · `dirac(t)` · `impulse(t)` · `DiracDelta(t)` |
+| Exponential | `exp(-3*t)` · `e^-3t` · `e^-2.5t` |
+| Trig shorthand | `sin2t` → `sin(2*t)` · `cos t` → `cos(t)` · `tanh3t` → `tanh(3*t)` |
+
+**Exponential shorthand:** `e^-5t` expands to `exp(-5*t)` automatically.
+**Trig shorthand:** `sin`/`cos`/`tan`/`sinh`/`cosh`/`tanh` followed by a number and `t`.
+
+| Example input | Result |
+|---------------|--------|
+| `delta(t) + 7*u(t) - 6*exp(-5*t)` | `1 + 7/s - 6/(s+5)` |
+| `sin2t * u(t)` | `2/(s^2+4)` |
+| `e^-t` | `1/(s+1)` |
