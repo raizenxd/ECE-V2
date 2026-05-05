@@ -430,22 +430,23 @@ class AboutPage(Page):
             cbtn(cv, 30, 18, 180, 68, "BACK",
                  ("OPTIVagRound-Bold", 20), RED, RED_DK,
                  lambda: self._go(self._slide - 1), r=18)
-            otxt(cv, W//2, 44, "About the Project",
-                 ("OPTIVagRound-Bold", 20), fill=WHITE, ol=NAVY, ow=2)
+            if self._slide < 5:
+                otxt(cv, W//2, 44, "About the Project",
+                     ("OPTIVagRound-Bold", 20), fill=WHITE, ol=NAVY, ow=2)
 
         # HOME always visible
         cbtn(cv, W-180, 18, W-30, 68, "HOME",
              ("OPTIVagRound-Bold", 20), YELLOW, YEL_DK,
              lambda: self.go("home"), r=18)
 
-        # NEXT is hidden on the last slide so the user cannot go past slide 4
-        if self._slide < 4:
+        # NEXT is hidden on the last slide so the user cannot go past slide 6
+        if self._slide < 6:
             cbtn(cv, W-230, H-65, W-30, H-10, "NEXT",
                  ("OPTIVagRound-Bold", 22), GREEN, GRN_DK,
                  lambda: self._go(self._slide + 1), r=22)
 
         # use the slide index to call the matching slide method (0→_s0, 1→_s1, etc.)
-        [self._s0, self._s1, self._s2, self._s3, self._s4][self._slide]()
+        [self._s0, self._s1, self._s2, self._s3, self._s4, self._s5, self._s6][self._slide]()
 
     # ── shared drawing helpers ────────────────────────────────────────────────
     def _card(self, y1, y2):
@@ -617,6 +618,70 @@ class AboutPage(Page):
             "and discharging. It converts complex time-domain circuit equations into simpler "
             "algebraic equations in the s-domain, making differential equations easier to solve."
         ), size=12)
+
+    # ── Slide 5 · How to Use (Inputs & Constants) ────────────────────────────
+    def _s5(self):
+        cv = self.cv
+        otxt(cv, W//2, 100, "How to Use",
+             ("OPTIVagRound-Bold", 54), fill=WHITE, ol=NAVY, ow=5)
+             
+        otxt(cv, 350, 200, "General Inputs",
+             ("OPTIVagRound-Bold", 32), fill=WHITE, ol="#5A3A22", ow=3)
+        
+        inputs = [
+            "Use * for multiplication",
+            "Use / for division",
+            "Use ^ or ** for powers",
+            "Use parentheses () for grouping",
+            "Use x for Fourier Series",
+            "Use t for Laplace Transform",
+            "Use s for Inverse Laplace Transform",
+            "Use i, j, or I for imaginary numbers"
+        ]
+        for i, text in enumerate(inputs):
+            cv.create_text(180, 250 + i * 35, text=text,
+                           font=("OPTIVagRound-Bold", 20), fill=WHITE, anchor="w")
+
+        otxt(cv, 900, 200, "Accepted Constants",
+             ("OPTIVagRound-Bold", 32), fill=WHITE, ol="#5A3A22", ow=3)
+        
+        constants = [
+            "pi = \u03c0",
+            "e = Euler's number",
+            "E = Euler's number",
+            "I = imaginary unit",
+            "i = imaginary unit",
+            "j = imaginary unit",
+            "oo = infinity",
+            "inf = infinity"
+        ]
+        for i, text in enumerate(constants):
+            cv.create_text(760, 250 + i * 35, text=text,
+                           font=("OPTIVagRound-Bold", 20), fill=WHITE, anchor="w")
+
+    # ── Slide 6 · How to Use (Functions) ─────────────────────────────────────
+    def _s6(self):
+        cv = self.cv
+        otxt(cv, W//2, 100, "How to Use",
+             ("OPTIVagRound-Bold", 54), fill=WHITE, ol=NAVY, ow=5)
+             
+        otxt(cv, W//2, 200, "Accepted Functions",
+             ("OPTIVagRound-Bold", 32), fill=WHITE, ol="#5A3A22", ow=3)
+             
+        funcs = [
+            ["sqrt()", "cbrt()", "exp()", "log()", "ln()", "log10()"],
+            ["sin()", "cos()", "tan()", "asin()", "acos()", "atan()", "atan2()"],
+            ["sinh()", "cosh()", "tanh()", "", "abs()", "Abs()", "sign()", "floor()", "ceil()"],
+            ["re()", "im()", "arg()", "conj()", "conjugate()", "", "Piecewise()", "Heaviside()", "DiracDelta()"],
+        ]
+        
+        left_x = [250, 450, 650, 850]
+        
+        for col_i, col_funcs in enumerate(funcs):
+            for row_i, text in enumerate(col_funcs):
+                if text:
+                    cv.create_text(left_x[col_i], 260 + row_i * 35, text=text,
+                                   font=("OPTIVagRound-Bold", 20), fill=WHITE, anchor="w")
 
 
 # ── Topics page ───────────────────────────────────────────────────────────────
