@@ -9,13 +9,22 @@ from sympy.parsing.sympy_parser import (
     parse_expr,
     standard_transformations,
     implicit_multiplication_application,
+    implicit_application,
 )
 import matplotlib
 matplotlib.use("TkAgg")       # must be set before pyplot is imported
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-_PARSE_TRANSFORMS = standard_transformations + (implicit_multiplication_application,)
+_PARSE_TRANSFORMS = standard_transformations + (
+    implicit_multiplication_application,
+    implicit_application,
+)
+
+
+def _unit_step(x):
+    # Use Heaviside(x, 1) so u(0)=1, matching common engineering convention.
+    return sp.Heaviside(x, 1)
 
 # ── Shared input parser (used by all pages) ───────────────────────────────────
 # Only these names are recognized when evaluating user-typed expressions — nothing else can be executed
@@ -32,6 +41,11 @@ _SAFE_LOCALS = {
     'abs':  sp.Abs,  'Abs': sp.Abs,  'sign': sp.sign,
     'floor': sp.floor, 'ceil': sp.ceiling,
     're': sp.re, 'im': sp.im, 'arg': sp.arg, 'conj': sp.conjugate,
+    # signals (for Laplace)
+    'u': _unit_step, 'U': _unit_step, 'H': _unit_step,
+    'step': _unit_step, 'heaviside': _unit_step,
+    'delta': sp.DiracDelta, 'dirac': sp.DiracDelta, 'impulse': sp.DiracDelta,
+    'DiracDelta': sp.DiracDelta, 'δ': sp.DiracDelta,
 }
 
 def _normalize(raw):
@@ -42,9 +56,11 @@ def _normalize(raw):
       * × -> *  ÷ -> /  (unicode operators)
       * bare i or j  ->  I  (imaginary unit, skips pi/sin/etc.)
       * implicit mult: 2I -> 2*I,  3pi -> 3*pi
+            * Laplace aliases: δ(t) -> delta(t), e^-at -> exp(-a*t)
     """
     s = raw.strip()
     s = s.replace('\u00d7', '*').replace('\u00f7', '/').replace('^', '**')
+    s = s.replace('δ', 'delta')
     # Replace standalone imaginary i/j not inside a word  (e.g. j not in 'pi','sin')
     s = _re.sub(r'(?<![A-Za-z_])j(?![A-Za-z_0-9])', 'I', s)
     s = _re.sub(r'(?<![A-Za-z_])i(?![A-Za-z_0-9])', 'I', s)
@@ -52,7 +68,104 @@ def _normalize(raw):
     s = _re.sub(r'(\d)(I\b)',  r'\1*\2', s)
     s = _re.sub(r'(\d)(pi\b)', r'\1*\2', s)
     s = _re.sub(r'(?<=[\d\)])(pi|e|I)\b', r'*\1', s)
+    # Trig shorthand support: cos2t, cos 2t, sin3t -> cos(2*t), sin(3*t)
+    s = _re.sub(
+        r'\b(sin|cos|tan|sinh|cosh|tanh)\s*([+-]?\d+(?:\.\d+)?)\s*\*?\s*t\b',
+        lambda m: f"{m.group(1)}({m.group(2)}*t)",
+        s,
+    )
+    s = _re.sub(
+        r'\b(sin|cos|tan|sinh|cosh|tanh)\s*t\b',
+        lambda m: f"{m.group(1)}(t)",
+        s,
+    )
+    # Common Laplace shorthand support: e^-t, e^-5t, e^-2.5t
+    s = _re.sub(r'\be\*\*-\s*t\b', 'exp(-t)', s)
+    s = _re.sub(r'\be\*\*-\s*([0-9]+(?:\.[0-9]+)?)\s*\*?\s*t\b', r'exp(-\1*t)', s)
     return s
+
+
+def _parse_symbolic(raw, locs):
+    """Parse symbolic math safely with implicit multiplication/application enabled."""
+    return parse_expr(
+        _normalize(raw),
+        local_dict=locs,
+        transformations=_PARSE_TRANSFORMS,
+        evaluate=True,
+    )
+
+
+def _laplace_preprocess(raw):
+    """Apply laplace.py-style preprocessing for forward Laplace inputs."""
+    expr_str = _normalize(raw).strip()
+    expr_str = _re.sub(r'\bu\s*\(\s*t\s*\)', '1', expr_str)
+    expr_str = _re.sub(r'\*\s*u\s*\(\s*t\s*\)', '', expr_str)
+    expr_str = _re.sub(r'u\s*\(\s*t\s*\)\s*\*', '', expr_str)
+    expr_str = _re.sub(r'\bdelta\s*\(\s*t\s*\)', 'DiracDelta(t)', expr_str)
+    expr_str = _re.sub(r'\bimpulse\s*\(\s*t\s*\)', 'DiracDelta(t)', expr_str)
+    expr_str = _re.sub(r'\bdirac\s*\(\s*t\s*\)', 'DiracDelta(t)', expr_str)
+    expr_str = _re.sub(r'\bdelta\b', 'DiracDelta(t)', expr_str)
+    expr_str = _re.sub(r'\bimpulse\b', 'DiracDelta(t)', expr_str)
+    expr_str = _re.sub(r'\bdirac\b', 'DiracDelta(t)', expr_str)
+    if not expr_str:
+        expr_str = '0'
+    return expr_str
+    
+def _laplace_clean_text(text):
+    """Normalize Laplace display text for readability."""
+    return (
+        str(text)
+        .replace("**", "^")
+        .replace("DiracDelta(t)", "delta(t)")
+        .replace("Heaviside(t, 1)", "u(t)")
+        .replace("Heaviside(t)", "u(t)")
+    )
+
+def _laplace_format_parts(result, s_sym):
+    """Split a rational expression into printable whole/fraction terms."""
+    result = sp.simplify(sp.apart(result, s_sym))
+    terms = sp.Add.make_args(result)
+    parts = []
+    for term in terms:
+        numer, denom = sp.fraction(term)
+        numer = sp.expand(numer)
+        denom = sp.expand(denom)
+        if denom == 1:
+            parts.append(("whole", _laplace_clean_text(numer), None))
+        else:
+            parts.append(("frac", _laplace_clean_text(numer), _laplace_clean_text(denom)))
+    return parts
+
+def _laplace_render_parts(parts):
+    """Render fractions in stacked/vertical form without decorative boxes."""
+    lines_num, lines_bar, lines_den = [], [], []
+    pad = 3
+
+    for i, part in enumerate(parts):
+        sign = "   "
+        if i > 0:
+            raw = part[1]
+            sign = " - " if raw.startswith("-") else " + "
+
+        if part[0] == "whole":
+            val = part[1].lstrip("-") if (i > 0 and part[1].startswith("-")) else part[1]
+            width = len(sign) + len(val)
+            lines_num.append(sign + val)
+            lines_bar.append(" " * width)
+            lines_den.append(" " * width)
+        else:
+            n_str, d_str = part[1], part[2]
+            inner_w = max(len(n_str), len(d_str)) + pad
+            lines_num.append(sign + n_str.center(inner_w))
+            lines_bar.append(" " * len(sign) + ("─" * inner_w))
+            lines_den.append(" " * len(sign) + d_str.center(inner_w))
+
+    row1 = "".join(lines_num).rstrip()
+    row2 = "".join(lines_bar).rstrip()
+    row3 = "".join(lines_den).rstrip()
+    if row2.strip():
+        return f"{row1}\n{row2}\n{row3}"
+    return row1
 
 def _parse_num(raw):
     """Parse a numeric expression string to Python complex.
@@ -135,7 +248,7 @@ class App(tk.Tk):
             ("creator", CreatorPage),
             ("complex", ComplexPage),
             ("linear",  LinearPage),
-            ("lineareq", LinearEquationPage),
+            # ("lineareq", LinearEquationPage),  # hidden from App pages
             ("fourier", FourierPage),
             ("laplace", LaplacePage),
         ]:
@@ -163,13 +276,19 @@ class Page(tk.Frame):
     def go(self, name):  # shortcut so subclasses can call self.go() instead of self._app.go()
         self._app.go(name)
 
-    def _topbar(self, cv, back="home"):
+    def _topbar(self, cv, back="home", help_cmd=None):
         cbtn(cv, 30, 18, 180, 68, "BACK",
              ("OPTIVagRound-Bold", 20), RED, RED_DK, lambda: self.go(back), r=18)  # BACK navigates to the previous page
         otxt(cv, W//2, 44, "ECETHON",
              ("OPTIVagRound-Bold", 26), fill=GREEN, ol=NAVY, ow=2)  # centered app name label
+        if help_cmd:
+            cbtn(cv, W-230, 18, W-190, 68, "?",
+                 ("OPTIVagRound-Bold", 22), YELLOW, YEL_DK, help_cmd, r=14)
         cbtn(cv, W-180, 18, W-30, 68, "HOME",
              ("OPTIVagRound-Bold", 20), YELLOW, YEL_DK, lambda: self.go("home"), r=18)  # HOME always goes to the landing screen
+
+    def _show_how_to_use(self, rows):
+        _show_modal(self._app, "HOW TO USE", rows, hdr_color=NAVY)
 
     @staticmethod
     def _purplebar(cv):
@@ -311,22 +430,23 @@ class AboutPage(Page):
             cbtn(cv, 30, 18, 180, 68, "BACK",
                  ("OPTIVagRound-Bold", 20), RED, RED_DK,
                  lambda: self._go(self._slide - 1), r=18)
-            otxt(cv, W//2, 44, "About the Project",
-                 ("OPTIVagRound-Bold", 20), fill=WHITE, ol=NAVY, ow=2)
+            if self._slide < 5:
+                otxt(cv, W//2, 44, "About the Project",
+                     ("OPTIVagRound-Bold", 20), fill=WHITE, ol=NAVY, ow=2)
 
         # HOME always visible
         cbtn(cv, W-180, 18, W-30, 68, "HOME",
              ("OPTIVagRound-Bold", 20), YELLOW, YEL_DK,
              lambda: self.go("home"), r=18)
 
-        # NEXT is hidden on the last slide so the user cannot go past slide 4
-        if self._slide < 4:
+        # NEXT is hidden on the last slide so the user cannot go past slide 6
+        if self._slide < 6:
             cbtn(cv, W-230, H-65, W-30, H-10, "NEXT",
                  ("OPTIVagRound-Bold", 22), GREEN, GRN_DK,
                  lambda: self._go(self._slide + 1), r=22)
 
         # use the slide index to call the matching slide method (0→_s0, 1→_s1, etc.)
-        [self._s0, self._s1, self._s2, self._s3, self._s4][self._slide]()
+        [self._s0, self._s1, self._s2, self._s3, self._s4, self._s5, self._s6][self._slide]()
 
     # ── shared drawing helpers ────────────────────────────────────────────────
     def _card(self, y1, y2):
@@ -499,13 +619,77 @@ class AboutPage(Page):
             "algebraic equations in the s-domain, making differential equations easier to solve."
         ), size=12)
 
+    # ── Slide 5 · How to Use (Inputs & Constants) ────────────────────────────
+    def _s5(self):
+        cv = self.cv
+        otxt(cv, W//2, 100, "How to Use",
+             ("OPTIVagRound-Bold", 54), fill=WHITE, ol=NAVY, ow=5)
+             
+        otxt(cv, 350, 200, "General Inputs",
+             ("OPTIVagRound-Bold", 32), fill=WHITE, ol="#5A3A22", ow=3)
+        
+        inputs = [
+            "Use * for multiplication",
+            "Use / for division",
+            "Use ^ or ** for powers",
+            "Use parentheses () for grouping",
+            "Use x for Fourier Series",
+            "Use t for Laplace Transform",
+            "Use s for Inverse Laplace Transform",
+            "Use i, j, or I for imaginary numbers"
+        ]
+        for i, text in enumerate(inputs):
+            cv.create_text(180, 250 + i * 35, text=text,
+                           font=("OPTIVagRound-Bold", 20), fill=WHITE, anchor="w")
+
+        otxt(cv, 900, 200, "Accepted Constants",
+             ("OPTIVagRound-Bold", 32), fill=WHITE, ol="#5A3A22", ow=3)
+        
+        constants = [
+            "pi = \u03c0",
+            "e = Euler's number",
+            "E = Euler's number",
+            "I = imaginary unit",
+            "i = imaginary unit",
+            "j = imaginary unit",
+            "oo = infinity",
+            "inf = infinity"
+        ]
+        for i, text in enumerate(constants):
+            cv.create_text(760, 250 + i * 35, text=text,
+                           font=("OPTIVagRound-Bold", 20), fill=WHITE, anchor="w")
+
+    # ── Slide 6 · How to Use (Functions) ─────────────────────────────────────
+    def _s6(self):
+        cv = self.cv
+        otxt(cv, W//2, 100, "How to Use",
+             ("OPTIVagRound-Bold", 54), fill=WHITE, ol=NAVY, ow=5)
+             
+        otxt(cv, W//2, 200, "Accepted Functions",
+             ("OPTIVagRound-Bold", 32), fill=WHITE, ol="#5A3A22", ow=3)
+             
+        funcs = [
+            ["sqrt()", "cbrt()", "exp()", "log()", "ln()", "log10()"],
+            ["sin()", "cos()", "tan()", "asin()", "acos()", "atan()", "atan2()"],
+            ["sinh()", "cosh()", "tanh()", "", "abs()", "Abs()", "sign()", "floor()", "ceil()"],
+            ["re()", "im()", "arg()", "conj()", "conjugate()", "", "Piecewise()", "Heaviside()", "DiracDelta()"],
+        ]
+        
+        left_x = [250, 450, 650, 850]
+        
+        for col_i, col_funcs in enumerate(funcs):
+            for row_i, text in enumerate(col_funcs):
+                if text:
+                    cv.create_text(left_x[col_i], 260 + row_i * 35, text=text,
+                                   font=("OPTIVagRound-Bold", 20), fill=WHITE, anchor="w")
+
 
 # ── Topics page ───────────────────────────────────────────────────────────────
 class TopicsPage(Page):
     _TOPICS = [
         ("Complex\nNumbers",   "complex",  GREEN,     GRN_DK),
         ("Linear\nAlgebra",    "linear",   "#8B5CF6", "#5B2CC0"),
-        ("Linear\nEquation",   "lineareq", "#7C3AED", "#5B21B6"),
+        # ("Linear\nEquation",   "lineareq", "#7C3AED", "#5B21B6"),  # hidden from Topics
         ("Fourier\nSeries",    "fourier",  "#F97316", "#C05010"),
         ("Laplace\nTransform", "laplace",  "#EC4899", "#A01060"),
     ]
@@ -558,7 +742,13 @@ class ComplexPage(Page):
         cv = self.cv
         cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
         self._purplebar(cv)
-        self._topbar(cv, "topics")
+        help_rows = [
+            ("Input:", "Complex expression using i/j, pi, e, sqrt, sin, cos, exp, log."),
+            ("How to use:", "Type in the box, then press CALCULATE or Enter."),
+            ("Result:", "Shows a+bj plus real/imag, magnitude, and phase."),
+            ("Hotkeys:", "Enter = Calculate"),
+        ]
+        self._topbar(cv, "topics", lambda: self._show_how_to_use(help_rows))
 
         otxt(cv, W//2, 148, "COMPLEX NUMBERS",
              ("OPTIVagRound-Bold", 54), fill=WHITE, ol=NAVY, ow=4)
@@ -673,7 +863,23 @@ class ComplexPage(Page):
 
 # ── Shared result-modal mixin ────────────────────────────────────────────────
 def _show_modal(app, title, rows, error=None, hdr_color=NAVY):
-    MW, MH = 580, 120 + (len(rows) * 46 if rows else 100) + 80  # height grows automatically with the number of result rows
+    max_chars = 0
+    if rows:
+        for _, value in rows:
+            for ln in str(value).splitlines() or [""]:
+                max_chars = max(max_chars, len(ln))
+
+    MW = max(580, min(940, 320 + max_chars * 8))
+    row_heights = []
+    if rows:
+        for _, value in rows:
+            line_count = str(value).count("\n") + 1
+            row_heights.append(max(46, 14 + line_count * 20))
+        content_h = sum(row_heights)
+    else:
+        content_h = 100
+
+    MH = 120 + content_h + 80  # height grows with row count and multiline content
     MH = max(MH, 300)  # enforce a minimum height so the modal never looks too small
     m = tk.Toplevel()
     m.title(title)
@@ -695,15 +901,22 @@ def _show_modal(app, title, rows, error=None, hdr_color=NAVY):
                        font=("OPTIVagRound-Bold", 16), fill=RED, justify="center")
     else:
         rr(cv, 24, 76, MW-24, MH-68, r=22, fill=CARD, outline="")
-        lx, vx = 44, 260
+        lx, vx = 44, 190
+        y = 108
         for idx, (label, value) in enumerate(rows):
-            y = 108 + idx * 46
-            cv.create_text(lx, y, anchor="w", font=("OPTIVagRound-Bold", 15),
+            value_text = str(value)
+            line_count = value_text.count("\n") + 1
+            row_h = row_heights[idx] if idx < len(row_heights) else 46
+            value_font = ("Consolas", 13) if line_count > 1 else ("OPTIVagRound-Bold", 15)
+
+            cv.create_text(lx, y, anchor="nw", font=("OPTIVagRound-Bold", 15),
                            fill=NAVY, text=label)
-            cv.create_text(vx, y, anchor="w", font=("OPTIVagRound-Bold", 15),
-                           fill=NAVY, text=value)
+            cv.create_text(vx, y, anchor="nw", font=value_font,
+                           fill=NAVY, text=value_text)
             if idx < len(rows) - 1:
-                cv.create_line(40, y+22, MW-40, y+22, fill="#90C8E8", width=1)
+                cv.create_line(40, y + row_h - 8, MW-40, y + row_h - 8,
+                               fill="#90C8E8", width=1)
+            y += row_h
     cbtn(cv, MW//2-80, MH-58, MW//2+80, MH-12, "CLOSE",
          ("OPTIVagRound-Bold", 16), RED, RED_DK, m.destroy, r=18)
 
@@ -742,7 +955,13 @@ class LinearPage(Page):
         cv = self.cv
         cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
         self._purplebar(cv)
-        self._topbar(cv, "topics")
+        help_rows = [
+            ("Input:", "Set sizes, then fill Matrix A and B. Or pick Linear Equations (solve variables)."),
+            ("How to use:", "CALCULATE for matrix ops; SOLVE X,Y,Z for A*X=B or augmented A."),
+            ("Result:", "Matrix output or variable solution."),
+            ("Hotkeys:", "None"),
+        ]
+        self._topbar(cv, "topics", lambda: self._show_how_to_use(help_rows))
 
         # title
         otxt(cv, W//2, 105, self._page_title,
@@ -801,12 +1020,15 @@ class LinearPage(Page):
         # hint
         self._hint_id = cv.create_text(
             W//2, 706, font=("OPTIVagRound-Bold", 11),
-            fill=WHITE, text="Supports complex numbers  e.g.  3+4j  or  2-1j"
+            fill=WHITE,
+            text="Use A and B for A*X=B, or augmented A (e.g. 6 7 8 -> 6x+7y=8). Supports complex values."
         )
 
-        # CALCULATE button (fixed, always on top)
-        cbtn(cv, W//2-140, 636, W//2+140, 686, "CALCULATE",
+        # Two actions: matrix operation result, and variable solve for A*X=B
+        cbtn(cv, W//2-310, 636, W//2-20, 686, "CALCULATE",
              ("OPTIVagRound-Bold", 20), self._PURPLE, self._PRPDK, self._calc, r=26)
+        cbtn(cv, W//2+20, 636, W//2+310, 686, "SOLVE X,Y,Z",
+             ("OPTIVagRound-Bold", 20), GREEN, GRN_DK, self._solve_from_matrices, r=26)
 
     def _spin(self, x, y, var):
         # read-only spinbox so users can only increment/decrement (not type invalid values)
@@ -881,7 +1103,7 @@ class LinearPage(Page):
 
         self._eq_frame.place_forget()
         self.cv.itemconfigure(self._hint_id,
-                              text="Supports complex numbers  e.g.  3+4j  or  2-1j")
+                              text="Use A and B for A*X=B, or augmented A (e.g. 6 7 8 -> 6x+7y=8). Supports complex values.")
 
         CW, CH, P = self._CELL_W, self._CELL_H, self._PAD
 
@@ -965,6 +1187,130 @@ class LinearPage(Page):
             return arr.real  # return a real array if no imaginary parts exist (cleaner output)
         return arr
 
+    @staticmethod
+    def _default_var_symbols(count):
+        names = ["x", "y", "z", "w", "v", "u"]
+        syms = [sp.Symbol(n) for n in names[:count]]
+        if count > len(names):
+            syms.extend(sp.Symbol(f"x{i+1}") for i in range(len(names), count))
+        return syms
+
+    @staticmethod
+    def _fmt_solution(val):
+        val = sp.simplify(val)
+        if getattr(val, "free_symbols", set()):
+            return str(val)
+        try:
+            c = complex(val.evalf())
+            if abs(c.imag) < 1e-12:
+                return f"{c.real:.6g}"
+            sign = "+" if c.imag >= 0 else "-"
+            return f"{c.real:.6g}{sign}{abs(c.imag):.6g}j"
+        except Exception:
+            return str(val)
+
+    def _equation_from_row(self, coeff_row, rhs, vars_list):
+        terms = []
+        for coeff, var in zip(coeff_row, vars_list):
+            c = complex(coeff)
+            if abs(c.real) < 1e-12 and abs(c.imag) < 1e-12:
+                continue
+
+            if abs(c.imag) < 1e-12:
+                rv = c.real
+                if abs(rv - 1.0) < 1e-12:
+                    terms.append(f"{var}")
+                elif abs(rv + 1.0) < 1e-12:
+                    terms.append(f"-{var}")
+                else:
+                    terms.append(f"{rv:.6g}{var}")
+            else:
+                terms.append(f"({self._fmt_solution(c)}){var}")
+
+        lhs = " + ".join(terms) if terms else "0"
+        lhs = lhs.replace("+ -", "- ")
+        return f"{lhs} = {self._fmt_solution(rhs)}"
+
+    def _solve_from_matrices(self):
+        if self._equation_only:
+            self._calc_linear_equations()
+            return
+
+        if self.op_var.get() == self._EQ_OP:
+            self._calc_linear_equations()
+            return
+
+        try:
+            A = np.asarray(self._read_grid(self._cellsA), dtype=complex)
+            B = np.asarray(self._read_grid(self._cellsB), dtype=complex)
+        except Exception:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error="⚠  Invalid value in a matrix cell", hdr_color=self._PRPDK)
+            return
+
+        if A.ndim != 2 or B.ndim != 2:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error="⚠  Matrices must be 2D", hdr_color=self._PRPDK)
+            return
+
+        rA, cA = A.shape
+        rB, cB = B.shape
+
+        if cA < 1:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error="⚠  Matrix A must have at least 1 column", hdr_color=self._PRPDK)
+            return
+
+        use_augmented = not (rB == rA and cB == 1)
+        if use_augmented:
+            if cA < 2:
+                _show_modal(self._app, "SOLVE X,Y,Z", [],
+                            error="⚠  For augmented mode, Matrix A must be n×(m+1)",
+                            hdr_color=self._PRPDK)
+                return
+            coeff = A[:, :-1]
+            rhs = A[:, -1].reshape(rA, 1)
+            source_label = "Mode: augmented Matrix A"
+        else:
+            coeff = A
+            rhs = B.reshape(rB, 1)
+            source_label = "Mode: A*X = B"
+
+        eq_count, var_count = coeff.shape
+        if var_count < 1:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error="⚠  No variable columns found", hdr_color=self._PRPDK)
+            return
+
+        vars_list = self._default_var_symbols(var_count)
+        A_sp = sp.Matrix(coeff.tolist())
+        b_sp = sp.Matrix(rhs.tolist())
+
+        try:
+            sol_set = sp.linsolve((A_sp, b_sp), *vars_list)
+        except Exception as e:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error=f"⚠  Solve error: {e}", hdr_color=self._PRPDK)
+            return
+
+        if sol_set == sp.EmptySet:
+            _show_modal(self._app, "SOLVE X,Y,Z", [],
+                        error="⚠  No solution", hdr_color=self._PRPDK)
+            return
+
+        sol_tuple = next(iter(sol_set))
+        eq_rows = [self._equation_from_row(coeff[i], rhs[i][0], vars_list)
+                   for i in range(eq_count)]
+        rows = [
+            ("System:", f"{eq_count} equations, {var_count} unknowns"),
+            ("Variables:", ", ".join(str(v) for v in vars_list)),
+            ("Interpretation:", source_label),
+        ]
+        rows.extend((f"Eq {i+1}:", eq_text) for i, eq_text in enumerate(eq_rows))
+        rows.extend((f"{var} =", self._fmt_solution(val))
+                    for var, val in zip(vars_list, sol_tuple))
+        _show_modal(self._app, "SOLVE X,Y,Z", rows, hdr_color=self._PRPDK)
+
     # ── calculation ───────────────────────────────────────────────────────────
     def _calc(self):
         if self._equation_only:
@@ -992,14 +1338,62 @@ class LinearPage(Page):
             sign = "+" if v.imag >= 0 else "-"
             return f"{v.real:.4g}{sign}{abs(v.imag):.4g}j"
 
+        rA, cA = A.shape
+        rB, cB = B.shape
+
         try:
             if op == "Addition (A+B)":
+                if (rA, cA) != (rB, cB):
+                    _show_modal(
+                        self._app,
+                        "A + B",
+                        [],
+                        error=f"⚠  Undefined: Matrix sizes must match exactly ({rA}x{cA} and {rB}x{cB})",
+                        hdr_color=self._PRPDK,
+                    )
+                    return
                 C, title = A + B, "A + B"              # element-wise addition
             elif op == "Subtraction (A-B)":
+                if (rA, cA) != (rB, cB):
+                    _show_modal(
+                        self._app,
+                        "A - B",
+                        [],
+                        error=f"⚠  Undefined: Matrix sizes must match exactly ({rA}x{cA} and {rB}x{cB})",
+                        hdr_color=self._PRPDK,
+                    )
+                    return
                 C, title = A - B, "A − B"              # element-wise subtraction
             elif op == "Multiplication (A×B)":
+                if cA != rB:
+                    _show_modal(
+                        self._app,
+                        "A × B",
+                        [],
+                        error=f"⚠  Undefined: columns of A must equal rows of B ({cA} != {rB})",
+                        hdr_color=self._PRPDK,
+                    )
+                    return
                 C, title = A @ B, "A × B"              # true matrix multiplication (dot product)
             elif op == "Division (A×B⁻¹)":
+                if rB != cB:
+                    _show_modal(
+                        self._app,
+                        "A × B⁻¹",
+                        [],
+                        error=f"⚠  Undefined: Matrix B must be square ({rB}x{cB})",
+                        hdr_color=self._PRPDK,
+                    )
+                    return
+                if cA != rB:
+                    _show_modal(
+                        self._app,
+                        "A × B⁻¹",
+                        [],
+                        error=f"⚠  Undefined: columns of A must equal rows of B ({cA} != {rB})",
+                        hdr_color=self._PRPDK,
+                    )
+                    return
                 C, title = A @ np.linalg.inv(B), "A × B⁻¹"  # A divided by B = A multiplied by the inverse of B
             else:
                 return
@@ -1116,6 +1510,8 @@ class FourierPage(Page):
     _ORGDK = "#C05010"
     _n_sym = sp.Symbol("n", integer=True, positive=True)
 
+    _DEFAULT_HARMONICS = 10
+
     _MAX_PIECES = 6
 
     def __init__(self, app):
@@ -1131,56 +1527,48 @@ class FourierPage(Page):
     # ── static chrome ──────────────────────────────────────────────────────────
     def _draw_static(self):
         cv = self.cv
+        y_shift = 43
         cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
         self._purplebar(cv)
-        self._topbar(cv, "topics")
-        otxt(cv, W//2, 105, "FOURIER SERIES",
+        help_rows = [
+            ("Input:", "Add piece rows with f(x) and interval bounds."),
+            ("How to use:", "Use + ADD PIECE / REMOVE LAST, then CALCULATE."),
+            ("Result:", "Shows coefficients, plot, and final series (N=10)."),
+            ("Hotkeys:", "None"),
+        ]
+        self._topbar(cv, "topics", lambda: self._show_how_to_use(help_rows))
+        otxt(cv, W//2, 105 + y_shift, "FOURIER SERIES",
              ("OPTIVagRound-Bold", 46), fill=WHITE, ol=NAVY, ow=4)
 
         # Main input card
-        rr(cv, 30, 128, W-30, 598, r=24, fill=CARD, outline="")
+        rr(cv, 30, 128 + y_shift, W-30, 598 + y_shift, r=24, fill=CARD, outline="")
 
         # Column headers
-        cv.create_text(90,  153, anchor="center",
+        cv.create_text(90,  153 + y_shift, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY, text="#")
-        cv.create_text(390, 153, anchor="center",
+        cv.create_text(280, 153 + y_shift, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY,
-                       text="f(x)  Expression  (use x, sin, cos, pi, abs, …)")
-        cv.create_text(730, 153, anchor="center",
+                       text="f(x)  Expression")
+        cv.create_text(500, 153 + y_shift, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY, text="From  x =")
-        cv.create_text(910, 153, anchor="center",
+        cv.create_text(650, 153 + y_shift, anchor="center",
                        font=("OPTIVagRound-Bold", 12), fill=NAVY, text="To  x =")
-        cv.create_line(50, 166, W-50, 166, fill="#4A7AB5", width=1)
+        cv.create_line(50, 166 + y_shift, W-50, 166 + y_shift, fill="#4A7AB5", width=1)
 
         # Piece row container
         self._piece_container = tk.Frame(self, bg=CARD)
-        self._piece_container.place(x=50, y=172, width=W-100, height=270)
+        self._piece_container.place(x=50, y=172 + y_shift, width=W-100, height=270)
 
         # Add / Remove buttons
-        cbtn(cv, 50,  454, 220, 492, "+ ADD PIECE",
+        cbtn(cv, 50,  454 + y_shift, 220, 492 + y_shift, "+ ADD PIECE",
              ("OPTIVagRound-Bold", 12), self._ORG, self._ORGDK,
              self._add_piece, r=14)
-        cbtn(cv, 228, 454, 398, 492, "REMOVE LAST",
+        cbtn(cv, 228, 454 + y_shift, 398, 492 + y_shift, "REMOVE LAST",
              ("OPTIVagRound-Bold", 12), "#DC2626", "#7F1D1D",
              self._remove_piece, r=14)
 
-        # Harmonics N  (limits auto-detected from piece bounds)
-        cv.create_text(460, 474, anchor="w",
-                       font=("OPTIVagRound-Bold", 14), fill=NAVY,
-                       text="Harmonics  N :")
-        self.nterms_var = tk.StringVar(value="10")
-        tk.Spinbox(self, from_=1, to=50, textvariable=self.nterms_var,
-                   width=4, font=("OPTIVagRound-Bold", 14),
-                   bg="#D6EEFA", fg=NAVY, relief="flat",
-                   highlightthickness=1, highlightbackground=NAVY,
-                   justify="center").place(x=616, y=456, height=36)
-
-        cv.create_text(690, 474, anchor="w",
-                       font=("OPTIVagRound-Bold", 11), fill=NAVY,
-                       text="(limits a & b are auto-detected from piece bounds)")
-
         # CALCULATE button
-        cbtn(cv, W//2-165, 516, W//2+165, 576, "CALCULATE",
+        cbtn(cv, W//2-165, 516 + y_shift, W//2+165, 576 + y_shift, "CALCULATE",
              ("OPTIVagRound-Bold", 22), self._ORG, self._ORGDK, self._calc, r=28)
 
     # ── piece row management ──────────────────────────────────────────────────
@@ -1234,10 +1622,7 @@ class FourierPage(Page):
         x_sym = sp.Symbol("x")
         n_sym = self._n_sym
 
-        try:
-            N = int(self.nterms_var.get())
-        except Exception:
-            N = 10
+        N = self._DEFAULT_HARMONICS
 
         locs = {**_SAFE_LOCALS, 'x': x_sym, 'Piecewise': sp.Piecewise}
 
@@ -1435,7 +1820,13 @@ class LaplacePage(Page):
         cv = self.cv
         cv.create_rectangle(0, 0, W, H, fill=SKY, outline="")
         self._purplebar(cv)
-        self._topbar(cv, "topics")
+        help_rows = [
+            ("Input:", "Enter f(t) using t, exp(), sin(), cos(), u(t), delta(t)."),
+            ("How to use:", "Press CALCULATE or Enter."),
+            ("Result:", "Shows F(s) Laplace transform."),
+            ("Hotkeys:", "Enter = Calculate"),
+        ]
+        self._topbar(cv, "topics", lambda: self._show_how_to_use(help_rows))
         otxt(cv, W//2, 148, "LAPLACE TRANSFORM",
              ("OPTIVagRound-Bold", 48), fill=WHITE, ol=NAVY, ow=4)
 
@@ -1445,21 +1836,15 @@ class LaplacePage(Page):
 
         rr(cv, x1, 190, x2, 360, r=30, fill=CARD, outline="")
 
-        ops = ["Laplace Transform", "Inverse Laplace"]
-        self.op_var = tk.StringVar(value=ops[0])
-        cb = ttk.Combobox(self, textvariable=self.op_var, values=ops,
-                          font=("OPTIVagRound-Bold", 16), state="readonly", width=22)
-        cb.place(x=x1+40, y=215, height=40)
-
-        cv.create_text(x1+40, 280, anchor="w",
+        cv.create_text(x1+40, 230, anchor="w",
                        font=("OPTIVagRound-Bold", 15), fill=NAVY,
-                       text="Expression  (use  t  for Laplace,  s  for Inverse):")
+                   text="Expression  (use t; supports u(t), delta(t)):")
         self.expr = tk.Entry(self, font=("OPTIVagRound-Bold", 18),
                              bg="#D6EEFA", fg=NAVY, relief="flat",
                              highlightthickness=2, highlightbackground=NAVY,
                              insertbackground=NAVY, justify="center")
-        self.expr.insert(0, "exp(-t)")  # pre-fill with a common example so the user can run it immediately
-        self.expr.place(x=x1+40, y=305, height=42, width=cw-80)
+        self.expr.insert(0, "delta(t) + 7*u(t) - 6*exp(-5*t)*u(t)")
+        self.expr.place(x=x1+40, y=255, height=42, width=cw-80)
         self.expr.bind("<Return>", lambda e: self._calc())  # Enter key triggers calculation
 
         cbtn(cv, cx-130, 375, cx+130, 428, "CALCULATE",
@@ -1472,25 +1857,18 @@ class LaplacePage(Page):
                         error="⚠  Enter an expression", hdr_color=self._PINKDK)
             return
         try:
-            t, s = sp.Symbol("t", positive=True), sp.Symbol("s")  # t is the time variable, s is the complex frequency variable
-            op   = self.op_var.get()
+            t, s = sp.Symbol("t", positive=True), sp.Symbol("s")
             locs = {**_SAFE_LOCALS, 't': t, 's': s}  # extend the safe whitelist with the two transform variables
-            expr = sp.sympify(_normalize(raw), locals=locs)  # parse the user expression into a SymPy expression
-            if op == "Laplace Transform":
-                result = sp.laplace_transform(expr, t, s, noconds=True)  # compute F(s) from f(t); noconds=True suppresses convergence conditions
-                rows = [
-                    ("f(t):",  sp.pretty(expr,  use_unicode=True)),   # original time-domain expression
-                    ("F(s):",  sp.pretty(result, use_unicode=True)),   # Laplace result in s-domain
-                    ("F(s) simplified:", str(sp.simplify(result))),    # algebraically simplified form
-                ]
-            else:
-                result = sp.inverse_laplace_transform(expr, s, t, noconds=True)  # compute f(t) from F(s)
-                rows = [
-                    ("F(s):",  sp.pretty(expr,   use_unicode=True)),   # original s-domain expression
-                    ("f(t):",  sp.pretty(result,  use_unicode=True)),   # inverse Laplace result in time-domain
-                    ("f(t) simplified:", str(sp.simplify(result))),     # algebraically simplified form
-                ]
-            _show_modal(self._app, op.upper(), rows, hdr_color=self._PINKDK)
+            preprocessed = _laplace_preprocess(raw)
+            expr = _parse_symbolic(preprocessed, locs)
+            result = sp.simplify(sp.laplace_transform(expr, t, s, noconds=True))
+            expr_display = _laplace_clean_text(sp.simplify(expr))
+            fs_display = _laplace_clean_text(sp.simplify(sp.apart(result, s)))
+            rows = [
+                ("f(t) =", expr_display),
+                ("F(s) =", fs_display),
+            ]
+            _show_modal(self._app, "LAPLACE TRANSFORM", rows, hdr_color=self._PINKDK)
         except Exception as e:
             _show_modal(self._app, "LAPLACE", [],
                         error=f"⚠  {e}", hdr_color=self._PINKDK)  # catches unsupported transforms or parse errors

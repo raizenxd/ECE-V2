@@ -31,11 +31,50 @@ ECETHON is a Python-based interactive computational tool for Advanced Engineerin
 
 ## How to Run
 
+If someone downloads or clones this project from GitHub and wants to run it in **Visual Studio Code**, follow these steps:
+
+1. Open the project folder in VS Code.
+2. Open the integrated terminal using **Terminal > New Terminal**.
+3. Make sure you are inside the project folder.
+
 ```bash
-python ECETHON.py
+cd /path/to/ECE
 ```
 
-Make sure all dependencies are installed first (see below). The app opens a fixed **1280 × 720** window.
+4. Create a virtual environment.
+
+```bash
+python3 -m venv .env
+```
+
+5. Activate the virtual environment.
+
+- On macOS/Linux:
+
+```bash
+source .env/bin/activate
+```
+
+- On Windows PowerShell:
+
+```powershell
+.env\Scripts\Activate.ps1
+```
+
+6. Install the required dependencies.
+
+```bash
+pip install -r requirements.txt
+pip install matplotlib
+```
+
+7. Run the application from the VS Code terminal.
+
+```bash
+python3 ECETHON.py
+```
+
+The app opens a fixed **1280 x 720** window.
 
 ---
 
@@ -56,7 +95,8 @@ Make sure all dependencies are installed first (see below). The app opens a fixe
 Install with:
 
 ```bash
-pip install sympy numpy matplotlib
+pip install -r requirements.txt
+pip install matplotlib
 ```
 
 ---
